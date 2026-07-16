@@ -1,215 +1,228 @@
-# Synapse Data Platform Based On Pricing Engine
+# Synapse — Data Trading Platform on a Dynamic Pricing Engine
 
-Synapse Data Platform is a highly secure, fine-grained data trading and consent management platform. It bridges the gap between Data Owners (e.g., healthcare providers, users) and Data Consumers (e.g., pharmaceutical companies, research institutions).
+> A fine-grained, consent-driven **data marketplace** that connects **Data Owners** (e.g. healthcare providers) with **Data Consumers** (e.g. research institutions), featuring a dynamic pricing engine, field-level consent control, real payments, and an event-driven microservice backend.
 
-The platform features an advanced **Dynamic Pricing Engine** supporting per-field pricing, sensitive data multipliers, purpose-based discounts, and bulk-request tiering, paired with strict **Role-Based Access Control (RBAC)** and **Granular Consent Rules**.
-
-##  Project Structure
-
-The repository is divided into two main parts:
-- `/frontend/dataMarketFrondEnd`: The frontend web application built with React, TypeScript, Vite, and TailwindCSS.
-- `/backend`: The RESTful API backend service built with Java, Spring Boot, and MyBatis-Plus.
+> **⚠️ Status: Active migration.** This project is being upgraded from a Spring Boot monolith into a **Spring Cloud Alibaba microservice cluster**. The legacy monolith under `/backend` is kept as a working reference while services are extracted incrementally. See **[docs/ENTERPRISE_UPGRADE_PLAN.md](./docs/ENTERPRISE_UPGRADE_PLAN.md)** for the full architecture blueprint, phased roadmap, and résumé notes.
 
 ---
 
-## Prerequisites
+## 1. Overview
 
-Make sure you have the following installed on your machine:
-- **Node.js** (v16.14+ recommended)
-- **pnpm** (Package manager used in the frontend)
-- **Java Development Kit (JDK)** (Version 11 or 17 recommended)
-- **Maven** (For backend dependency management)
-- **MySQL / PostgreSQL** (Depending on your configured JDBC driver)
+Synapse lets data owners publish datasets with rich, field-level pricing and consent rules, and lets consumers discover datasets, request access for a declared purpose, pay for approved access, and receive only the fields they are entitled to. Every access decision is priced by a **dynamic pricing engine** and recorded in an **immutable audit trail**.
+
+The platform is being re-architected around **domain-aligned microservices** with **asynchronous, event-driven** processing for the non-critical path (billing, audit, notifications), **Redis** for caching and idempotency, and **RabbitMQ** for decoupling and reliability.
 
 ---
 
-## Installation & Running
+## 2. Roles
 
-### 1. Backend Setup (Spring Boot)
+| Role | Capabilities |
+|---|---|
+| **Data Owner** | Upload datasets (CSV, auto-parsed), configure pricing, define field-level consent rules, **approve / reject** incoming access requests. |
+| **Data Consumer** | Browse the marketplace, submit access requests for a stated purpose and field set, **pay** for approved access (Stripe), view billing and granted data. |
 
-1. Open a terminal and navigate to the backend directory:
-   ```bash
-   cd backend
-   ```
-
-2. Configure the Database (AWS RDS Hosted):
-   - The project connects to a cloud-hosted database by default. You do NOT need to set up a local database server to run the application.
-   - **Host:** \`datamarket-shared.cfgcuc02as7i.eu-north-1.rds.amazonaws.com\`
-   - **Port:** \`3306\`
-   - **Database:** \`datamarket\`
-   - **Username:** \`admin\`
-   - **Password:** \`Zhm1015.\`
-   - If you ever need to point it to a different local or cloud database, locate the \`src/main/resources/application.yml\` (or \`.properties\`) file and update the configurations.
-
-3. Install dependencies and run the application:
-   ```bash
-   mvn clean install
-   ```
-   ```bash
-   mvn spring-boot:run
-   ```
-   *The backend server will typically start on `http://localhost:8080`.*
-
-### 2. Frontend Setup (React + Vite)
-
-1. Open a new terminal window and navigate to the frontend directory:
-   ```bash
-   cd frontend/dataMarketFrondEnd
-   ```
-
-2. Install the necessary dependencies using `pnpm`:
-   ```bash
-   pnpm install
-   ```
-
-3. Start the development server:
-   ```bash
-   pnpm run dev
-   ```
-   *The frontend application will be available at `http://localhost:5173`.*
+> Access approval is performed by the **Owner of the requested dataset** (or by automatic consent rules). There is no separate platform-admin role in the current scope.
 
 ---
 
-## Core Features
+## 3. Architecture
 
-1. **Dataset Schema Definition:** Owners can define complex schemas including `sensitive: true` flags implicitly via JSON upload.
-2. **Pricing Configuration:** Setup Base Access Fee, Per-field cost, Sensitive Multipliers, Purpose-based modifications, and Bulk Discounts.
-3. **Consent Management:** Owners can whitelist/blacklist specific datasets fields based on roles (e.g., University) and purposes (e.g., Medical Research).
-4. **Billing Calculation:** Consumers request access, and the backend engine automatically runs the complex pricing formulation based on selected fields and schemas.
+### 3.1 High-level topology
 
----
+```
+                       ┌─────────────┐
+   React SPA ─────────▶│   Gateway   │  JWT auth · routing · rate limiting
+                       └──────┬──────┘
+       ┌──────────┬──────────┼───────────┬──────────────┐
+       ▼          ▼          ▼           ▼              ▼
+   auth-svc   dataset-svc  consent-svc  access-svc   payment-svc
+   user/JWT   upload/parse  consent      orchestration  Stripe
+              + pricing     matching     + approval FSM  + webhook
+                  │                       │              │
+                  ▼ (async parse)         │ publish      │ webhook
+              ┌────────┐                  ▼ events       ▼
+              │ MinIO  │          ┌──────────────────────────┐
+              │ object │          │         RabbitMQ         │  + Dead Letter Queue
+              │ store  │          └───┬────────┬────────┬────┘
+              └────────┘              ▼        ▼        ▼
+                                 billing-svc audit-svc notification-svc
+                                 (async)     (async)   (approval/payment)
 
-## Technology Stack
+   Cross-cutting infrastructure:
+     Nacos (service registry + config center)  ·  Redis (cache / lock / rate-limit)
+     Sentinel (flow control & circuit breaking) ·  OpenFeign + LoadBalancer (RPC)
+     Docker Compose (orchestration)
+```
 
-**Frontend:** React, TypeScript, Vite, TailwindCSS, Lucide-React, Axios
-**Backend:** Java, Spring Boot, MyBatis-Plus, Jackson (for JSON TypeHandling), Spring Security, Jwt
+### 3.2 Business microservices
 
-# End-to-End Testing Guide: Synapse Data Platform
+| Service | Extracted from | Responsibility | Owns data |
+|---|---|---|---|
+| **gateway** | — | Unified entry: routing, JWT pre-auth, CORS, rate-limit ingress | — |
+| **auth-service** | `user/account` | Login, register, issue/verify JWT, user lookup | `user` |
+| **dataset-service** | `dataset` + `pricingconfig` + `PricingEngine` | Dataset CRUD, **CSV upload & schema parsing**, pricing config, pricing calculation | `dataset`, `pricing_config` |
+| **consent-service** | `consentmanagement` + `ConsentMatchingEngine` | Consent rule CRUD, field-level access matching | `consent_rule` |
+| **access-service** | `datamarket/AccessRequest` | **Trade orchestration** + **approval state machine**; calls consent/dataset via Feign; publishes events | `access_request` |
+| **payment-service** | _new_ | Stripe hosted checkout, payment state machine, idempotent webhook handling | `payment_order` |
+| **billing-service** | `billing` | Consumes billing events → billing records; billing queries | `billing_record` |
+| **audit-service** | `auditlog` | Consumes audit events → audit log; audit queries | `audit_log` |
+| **notification-service** | _new_ | Consumes approval/payment events → in-app notifications (event fan-out) | `notification` |
 
-This document provides a step-by-step walkthrough to test the core features of the Synapse Data Platform, specifically focusing on the **Dynamic Pricing Engine**, **Sensitive Field Modifiers**, and **Granular Consent Management**.
+### 3.3 Infrastructure components
 
-Follow these steps exactly to verify that the frontend UI properly captures complex JSON schemas and that the backend Java engine calculates the billing costs accurately.
-
-### Testing Accounts
-1. Owner Account: 
-- **username:** `owner`
-- **password:** `Zhm1015.`
-2. Consumer Account: 
-- **username:** `consumer`
-- **password:** `Zhm1015.`
-
----
-
-## Phase 1: Data Owner (Setup & Configuration)
-
-First, act as a **Data Owner** to publish a new dataset, set its intricate pricing rules, and establish consent boundaries.
-
-### Step 1: Create a New Dataset
-1. Log in or switch your role to a **Data Owner**.
-2. Navigate to **Data Management** (or Dataset Management).
-3. Click **Add Dataset** and use the following values:
-   - **Name:** `Neural Interface Sleep Patterns 2026`
-   - **Description:** `Deep brainwave and sleep stage data collected via neural interfaces.`
-   - **Category:** `health`
-   - **Record Count:** `80000`
-   - **Fields Schema (Copy and paste the exact JSON below):**
-     ```json
-     [
-       { "name": "user_id", "sensitive": true, "type": "string" },
-       { "name": "age", "sensitive": false, "type": "integer" },
-       { "name": "sleep_stages", "sensitive": true, "type": "string" },
-       { "name": "heart_rate_variability", "sensitive": false, "type": "integer" },
-       { "name": "body_temperature", "sensitive": false, "type": "float" },
-       { "name": "neurological_disorders", "sensitive": true, "type": "array" }
-     ]
-     ```
-     *(Notice we have 3 sensitive fields and 3 normal fields)*
-
-### Step 2: Configure Pricing
-1. On the dataset list, click the **green dollar icon ($)** next to your newly created dataset.
-2. Fill in the pricing engine configuration:
-   - **Base Access Fee ($):** `200`
-   - **Fee per Field ($):** `10`
-   - **Sensitive Field Multiplier:** `2.0`
-   - **Purpose Multipliers (JSON):**
-     ```json
-     {
-       "Sleep Research": 0.5,
-       "Medical Research": 0.8,
-       "Drug Development": 3.0
-     }
-     ```
-   - **Bulk Discounts (JSON):**
-     ```json
-     {
-       "3": 0.10,
-       "5": 0.20
-     }
-     ```
-3. Click **Save Changes**.
-
-### Step 3: Create a Consent Rule
-1. Navigate to **Consent Management**.
-2. Select your new `Neural Interface Sleep Patterns 2026` dataset.
-3. Click **Create Rule** and fill in:
-   - **Allowed Roles:** Select `University`.
-   - **Allowed Purposes:** Select `Sleep Research`.
-   - **Allowed Fields:** Select `age`, `sleep_stages`, `heart_rate_variability`, `body_temperature`, `neurological_disorders`.
-   - **Denied Fields (Optional):** Select `user_id`.
-   - **Valid Until:** Pick a date in the future (e.g., year 2099).
-4. Click **Create Rule**.
+| Component | Role in the platform |
+|---|---|
+| **Nacos** | Service registry + dynamic configuration center (hot-reload of pricing/limit params) |
+| **Spring Cloud Gateway** | API gateway: routing, centralized JWT auth, rate-limit ingress |
+| **Sentinel** | Flow control, circuit breaking, graceful degradation |
+| **Redis** | Hot-data cache (datasets/pricing), distributed lock & idempotency keys, rate-limit counters |
+| **RabbitMQ** | Asynchronous events (billing, audit, notifications, payment callbacks) with Dead Letter Queue |
+| **MinIO** | S3-compatible object storage for uploaded dataset files |
+| **OpenFeign + LoadBalancer** | Declarative inter-service calls with client-side load balancing |
+| **Docker Compose** | One-command local orchestration of the full cluster |
 
 ---
 
-## Phase 2: Data Consumer (Requesting Access)
+## 4. Functional Requirements (FR)
 
-Now, act as a **Data Consumer** to discover the data and request access based on the rules set above.
+### FR-1 · Authentication & Users (`auth-service`)
+- Users can **register** and **log in**; the system issues a **JWT** for stateless auth.
+- Requests are authenticated at the **gateway** before reaching business services.
+- Users carry a role (**Owner** / **Consumer**) that gates capabilities.
 
-### Step 4: Submit an Access Request
-1. Switch your user account/role to **Consumer** (ensure the user's role/organization is considered a `University`).
-2. Navigate to the **Data Market** page and find `Neural Interface Sleep Patterns 2026`.
-3. Click **Apply for Access**.
-4. Fill out the application form:
-   - **Purpose:** `Sleep Research`
-   - **Requested Fields:** Check the following 4 fields:
-     - `age`
-     - `sleep_stages` (Sensitive)
-     - `heart_rate_variability`
-     - `body_temperature`
-5. Submit the Request.
+### FR-2 · Dataset Management & Upload (`dataset-service`)
+- Owners **upload a dataset as a CSV file**; the system enforces **format and size limits**.
+- Uploaded files are stored in **MinIO**; parsing runs **asynchronously** (`UPLOADED → PARSING → READY / FAILED`).
+- The parser **infers a schema**: column names, data types (int/float/string/date), and flags **sensitive fields** by heuristic (e.g. id / name / email).
+- Owners configure **pricing**: base access fee, per-field fee, sensitive-field multiplier, purpose multipliers, bulk discounts.
+
+### FR-3 · Consent Management (`consent-service`)
+- Owners define **field-level consent rules**: allowed roles, allowed purposes, allowed/denied fields, validity period.
+- The **matching engine** decides, per request, the outcome: `approved` / `partial` / `rejected`, with allowed/denied fields and reasons.
+
+### FR-4 · Marketplace & Access Requests (`access-service`)
+- Consumers **browse** datasets and **submit an access request** (purpose + requested fields).
+- Each request enters an **approval state machine**: `PENDING → APPROVED / REJECTED`.
+- On approval, the system runs consent matching + **dynamic pricing**, persists the access record, and **publishes events** (billing, audit, notification) to RabbitMQ.
+- Duplicate submissions are prevented via a **Redis-based idempotency / distributed lock**.
+
+### FR-5 · Dynamic Pricing Engine (in `dataset-service`)
+- Computes total cost from: normal-field cost, sensitive-field cost (× multiplier), bulk discount tier, base access fee, and purpose multiplier — deterministically and auditable end-to-end.
+
+### FR-6 · Payment (`payment-service`)
+- For an approved, billed request, the Consumer pays via **Stripe hosted checkout** (the platform never handles card data — PCI scope is offloaded).
+- A **payment state machine** tracks `UNPAID → PAYING → PAID / FAILED / REFUNDED`.
+- Stripe **webhooks are processed idempotently** (callbacks may be re-delivered); payment results converge to billing via **eventual consistency** (local message table + MQ).
+
+### FR-7 · Billing (`billing-service`)
+- **Consumes billing events asynchronously** to create billing records; reconciles paid status from payment events.
+- Provides billing queries for dashboards.
+
+### FR-8 · Audit (`audit-service`)
+- **Consumes audit events asynchronously** to maintain an append-only audit trail of all access decisions.
+
+### FR-9 · Notifications (`notification-service`)
+- **Consumes approval and payment events** (event fan-out) to deliver in-app notifications to the relevant Consumer/Owner.
 
 ---
 
-## Phase 3: Verification & Auto-Calculation
+## 5. Non-Functional Requirements (NFR)
 
-Once the request is submitted (and approved if manual approval is required in your current flow), the system will generate a **Billing Record**.
+> Targets are deliberately set at a small-but-credible "enterprise scenario" scale to justify each architectural component. They are the design goals the architecture is built to meet and demonstrate.
 
-### The Math (Pricing Engine Breakdown):
-Let's verify the backend `PricingEngine.class` calculation step-by-step:
+| # | NFR | Target | Mechanism | Headline |
+|---|---|---|---|---|
+| NFR-1 | **Latency** | Browse / request APIs **P99 < 200ms** | Redis cache for hot datasets & pricing | "Cache hit-rate X%, P99 cut from Y→Z" |
+| NFR-2 | **Throughput / peak shaving** | Sustain bursts of **5k+ access requests** without failure | MQ buffering + async billing | "Moved DB writes off the sync path via MQ" |
+| NFR-3 | **Scalability** | Pricing / consent services **scale horizontally & independently** | Stateless services + replicas + LB | "Split by scaling profile, not just domain" |
+| NFR-4 | **Availability** | A non-core service outage **does not block the order path** | Service isolation + Sentinel degradation | "Audit down ⇒ orders still flow; events queue up" |
+| NFR-5 | **Reliability (no message loss)** | Billing / payment events **zero loss** | Persistence + manual ACK + DLQ + local message table | "Triple guarantee: outbox, manual ack, DLQ" |
+| NFR-6 | **Consistency** | Payment success → billing state **converges within seconds** | Eventual consistency (local message table) | "Traded strong consistency for availability + compensation" |
+| NFR-7 | **Idempotency** | Webhooks / duplicate submits **never double-charge** | Redis idempotency keys + unique constraints | "Webhooks re-deliver; idempotency key ⇒ exactly-once" |
+| NFR-8 | **Security** | No secrets in code; **no card data handled** | Nacos/env config; Stripe hosted checkout | "Secrets externalized; payment kept out of PCI scope" |
 
-1. **Usage Profile:** 
-   - Total Fields Requested: 4
-   - Normal Fields: 3 (`age`, `heart_rate_variability`, `body_temperature`)
-   - Sensitive Fields: 1 (`sleep_stages`)
+---
 
-2. **Calculate Field Base Cost:**
-   - Normal Field Cost = 3 * $10 = **$30**
-   - Sensitive Field Cost = 1 * ($10 * 2.0x Multiplier) = **$20**
-   - *Subtotal = $50*
+## 6. Technology Stack
 
-3. **Apply Bulk Discount:**
-   - 4 fields requested triggers the `>= 3` tier.
-   - Discount is `0.10` (10% off).
-   - Discounted Field Cost = $50 * (1 - 0.10) = **$45**
+**Frontend:** React, TypeScript, Vite, TailwindCSS, Axios
 
-4. **Add Base Access Fee:**
-   - Pre-Purpose Total = $45 (Fields) + $200 (Base Access Fee) = **$245**
+**Backend:** Java 17, Spring Boot 3.5, Spring Cloud Alibaba (Nacos, Gateway, Sentinel), OpenFeign, Spring Security + JWT, MyBatis-Plus
 
-5. **Apply Purpose Multiplier:**
-   - Purpose is `Sleep Research`, which has a multiplier of `0.5x` (50% off for academic research).
-   - **Final Total Amount** = $245 * 0.5 = **$122.50**
+**Messaging / Data / Infra:** RabbitMQ, Redis, MinIO (S3-compatible), MySQL 8, Stripe (sandbox), Docker Compose
 
-### Final Check
-Go to the **Billing / Dashboard** (or check your database's `billing_record` table). Ensure that the `cost` for this specific transaction is exactly **`122.50`**. 
+---
 
-If the cost matches exactly, congratulations! The end-to-end flow, from the dynamic JSON UI input to the Spring Boot persistence, and the complex mathematical mapping in the Pricing Engine are all working perfectly in unison.
+## 7. Repository Structure
+
+```
+/frontend/dataMarketFrondEnd   React + TypeScript + Vite SPA
+/backend                       Legacy Spring Boot monolith (reference, being decomposed)
+/services                      Spring Cloud Alibaba microservices (Maven multi-module)
+/infra                         docker-compose + middleware config + DB init scripts
+/docs/ENTERPRISE_UPGRADE_PLAN.md   Architecture blueprint, phased roadmap, résumé notes
+TESTING_GUIDE.md               End-to-end functional walkthrough of the pricing/consent flow
+```
+
+---
+
+## 8. Getting Started
+
+> Microservices and infrastructure are being added phase by phase (see the roadmap). The instructions below describe the target setup; until a given service is migrated, use the monolith under `/backend`.
+
+### Prerequisites
+- Docker & Docker Compose
+- JDK 17, Maven
+- Node.js 16.14+, pnpm
+
+### 1) Configuration (no secrets in the repo)
+All credentials (database, Redis, RabbitMQ, Stripe keys) are provided via **environment variables / `.env`** and the **Nacos config center** — never hardcoded. Copy the example file and fill in your own values:
+```bash
+cp infra/.env.example infra/.env   # then edit infra/.env
+```
+
+### 2) Start infrastructure
+```bash
+cd infra
+docker compose up -d   # Nacos, MySQL, Redis, RabbitMQ, MinIO, Sentinel
+```
+
+### 3) Backend (current monolith)
+```bash
+cd backend
+mvn spring-boot:run    # starts on http://localhost:8080
+```
+
+### 4) Frontend
+```bash
+cd frontend/dataMarketFrondEnd
+pnpm install
+pnpm run dev           # http://localhost:5173
+```
+
+For a step-by-step feature walkthrough (pricing math, consent rules, billing verification), see **[TESTING_GUIDE.md](./TESTING_GUIDE.md)**.
+
+---
+
+## 9. Roadmap
+
+The migration is delivered in phases, each independently runnable:
+
+- **Phase 0** — Multi-module skeleton, `synapse-common`, infra `docker-compose`, DB init scripts
+- **Phase 1** — Extract `auth-service` + API gateway (Nacos registry & config)
+- **Phase 2** — `dataset-service` (+ MinIO upload/parse) and `consent-service`; OpenFeign + Redis cache
+- **Phase 3** — `access-service` orchestration + approval FSM; RabbitMQ async billing/audit/notify; payment-service (Stripe)
+- **Phase 4** — Clustering & resilience: multi-replica + LB, Redis cluster, Sentinel
+- **Phase 5** — Observability & polish; final docs and résumé write-up
+
+Full detail in **[docs/ENTERPRISE_UPGRADE_PLAN.md](./docs/ENTERPRISE_UPGRADE_PLAN.md)**.
+
+---
+
+## 10. Security Notes
+
+- **No secrets in source.** Database/Redis/RabbitMQ/Stripe credentials live in environment variables and the Nacos config center.
+- **No card data.** Payments use Stripe's hosted checkout; the platform only creates payment intents and verifies signed webhooks, keeping it out of PCI scope.
+- **Stateless auth.** JWT verified at the gateway; services trust forwarded identity.
+
+> Note: the previous version of this README exposed a live database host and password. Those credentials must be **rotated**, as they remain in the git history.
