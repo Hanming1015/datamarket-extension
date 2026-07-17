@@ -27,6 +27,17 @@ CREATE TABLE IF NOT EXISTS users (
     UNIQUE KEY uk_users_username (username)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- 种子用户,便于 Phase 1 直接测登录(用户名 test / 密码 123456)。
+-- password 为 BCrypt($2b$10) 哈希,由 Spring 的 BCryptPasswordEncoder 校验。
+-- INSERT IGNORE:卷已存在时重跑不报错(实际首次空卷才执行)。
+INSERT IGNORE INTO users (id, name, email, organization, role, created_at, username, password)
+VALUES (
+    'seed-user-0000000000000000000000000000',
+    'Test User', 'test@synapse.local', 'Synapse', 'consumer',
+    NOW(), 'test',
+    '$2b$10$rMhwZqK1L6UZOLLEaWew/eckhd9.lqyqyW1omzcsecMbbffP9JQk6'
+);
+
 -- =====================================================================
 -- synapse_dataset :数据集 + 定价(拆自 dataset + pricingconfig)
 -- =====================================================================

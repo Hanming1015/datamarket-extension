@@ -1,0 +1,21 @@
+# =====================================================================
+# Nacos 配置 · Data ID: synapse-gateway.yaml · Group: SYNAPSE_GROUP
+# 网关专属:路由表 + JWT 鉴权白名单。
+# 路由用 lb://<服务名>,由 Nacos 服务发现 + 客户端负载均衡解析到实例。
+# =====================================================================
+spring:
+  cloud:
+    gateway:
+      routes:
+        - id: synapse-auth-service
+          uri: lb://synapse-auth-service
+          predicates:
+            - Path=/api/auth/**
+
+# 网关鉴权白名单:命中这些路径的请求跳过 JWT 校验(登录/注册本就没 token)。
+synapse:
+  gateway:
+    auth:
+      whitelist:
+        - /api/auth/login
+        - /api/auth/register

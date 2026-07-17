@@ -1,0 +1,30 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: synapse-gateway
+  cloud:
+    nacos:
+      server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+      username: ${NACOS_USERNAME:nacos}
+      password: ${NACOS_PASSWORD:nacos}
+      discovery:
+        group: SYNAPSE_GROUP
+      config:
+        group: SYNAPSE_GROUP
+        file-extension: yaml
+    gateway:
+      discovery:
+        locator:
+          enabled: false   # 只用显式路由,不按服务名自动暴露
+  # 从 Nacos 配置中心拉取:共享 JWT 配置 + 网关路由/白名单
+  config:
+    import:
+      - optional:nacos:synapse-common.yaml?group=SYNAPSE_GROUP
+      - optional:nacos:synapse-gateway.yaml?group=SYNAPSE_GROUP
+
+logging:
+  level:
+    com.synapse.gateway: info
+    org.springframework.cloud.gateway: info

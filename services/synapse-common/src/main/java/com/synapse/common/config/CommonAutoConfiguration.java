@@ -4,6 +4,7 @@ import com.synapse.common.exception.GlobalExceptionHandler;
 import com.synapse.common.security.JwtProperties;
 import com.synapse.common.security.JwtUtil;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -23,7 +24,13 @@ public class CommonAutoConfiguration {
         return new JwtUtil(properties);
     }
 
+    /**
+     * Only register the MVC exception handler in servlet-stack services (auth-service, etc.).
+     * The gateway runs on the reactive WebFlux stack — it has no DispatcherServlet, so this
+     * {@code @RestControllerAdvice} bean is skipped there, keeping the two stacks from clashing.
+     */
     @Bean
+    @ConditionalOnClass(name = "org.springframework.web.servlet.DispatcherServlet")
     @ConditionalOnMissingBean
     public GlobalExceptionHandler globalExceptionHandler() {
         return new GlobalExceptionHandler();

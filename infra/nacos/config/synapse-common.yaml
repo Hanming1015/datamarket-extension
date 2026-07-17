@@ -1,0 +1,11 @@
+# =====================================================================
+# Nacos 配置 · Data ID: synapse-common.yaml · Group: SYNAPSE_GROUP
+# 所有服务共享:JWT 签名参数。gateway 与 auth-service 都 import 本文件,
+# 保证同一把密钥 -> token 互通(也与旧单体互通)。
+# __JWT_SECRET__ 由 import-config.ps1 从 infra/.env 替换,不提交真实值。
+# =====================================================================
+synapse:
+  jwt:
+    secret: __JWT_SECRET__
+    issuer: sg
+    ttl-millis: 1209600000   # 14 天

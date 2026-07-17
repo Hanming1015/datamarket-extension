@@ -1,0 +1,25 @@
+server:
+  port: 8081
+
+spring:
+  application:
+    name: synapse-auth-service
+  cloud:
+    nacos:
+      server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+      username: ${NACOS_USERNAME:nacos}
+      password: ${NACOS_PASSWORD:nacos}
+      discovery:
+        group: SYNAPSE_GROUP
+      config:
+        group: SYNAPSE_GROUP
+        file-extension: yaml
+  # 从 Nacos 拉取:共享 JWT 配置 + 本服务数据源/MyBatis 配置
+  config:
+    import:
+      - optional:nacos:synapse-common.yaml?group=SYNAPSE_GROUP
+      - optional:nacos:synapse-auth-service.yaml?group=SYNAPSE_GROUP
+
+logging:
+  level:
+    com.synapse.auth: info

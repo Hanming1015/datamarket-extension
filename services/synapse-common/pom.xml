@@ -31,6 +31,18 @@
             <artifactId>spring-webmvc</artifactId>
             <optional>true</optional>
         </dependency>
+        <!-- GlobalExceptionHandler 引用了 servlet/validation 的异常类型;
+             optional 仅供本模块编译期解析,不强制传递给下游(网关运行时用不到)-->
+        <dependency>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
+            <optional>true</optional>
+        </dependency>
+        <dependency>
+            <groupId>jakarta.validation</groupId>
+            <artifactId>jakarta.validation-api</artifactId>
+            <optional>true</optional>
+        </dependency>
 
         <!-- jjwt -->
         <dependency>
