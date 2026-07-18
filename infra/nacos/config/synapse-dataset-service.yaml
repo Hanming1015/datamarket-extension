@@ -1,0 +1,33 @@
+# =====================================================================
+# Nacos 配置 · Data ID: synapse-dataset-service.yaml · Group: SYNAPSE_GROUP
+# dataset-service 专属:数据源(synapse_dataset)+ MyBatis-Plus + Redis + MinIO。
+# 服务跑在宿主机,故连 127.0.0.1:3307(MySQL)/6379(Redis)/9000(MinIO)。
+# 形如 双下划线包裹的占位符 由 import-config.ps1 从 infra/.env 替换。
+# =====================================================================
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3307/synapse_dataset?useSSL=false&serverTimezone=UTC&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
+    username: root
+    password: __MYSQL_ROOT_PASSWORD__
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      password: __REDIS_PASSWORD__
+      timeout: 3000ms
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: assign_uuid
+
+# 对象存储(MinIO,S3 兼容)· 自定义前缀 synapse.minio,由 MinioProperties 绑定
+synapse:
+  minio:
+    endpoint: http://127.0.0.1:9000
+    access-key: __MINIO_ROOT_USER__
+    secret-key: __MINIO_ROOT_PASSWORD__
+    bucket: synapse-datasets   # 数据集 CSV 原始文件桶(服务启动时自动建)

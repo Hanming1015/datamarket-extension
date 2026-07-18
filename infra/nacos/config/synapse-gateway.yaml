@@ -15,6 +15,10 @@ spring:
           uri: lb://synapse-consent-service
           predicates:
             - Path=/api/consent/**
+        - id: synapse-dataset-service
+          uri: lb://synapse-dataset-service
+          predicates:
+            - Path=/api/datasets/**
 
 # 网关鉴权白名单:命中这些路径的请求跳过 JWT 校验(登录/注册本就没 token)。
 synapse:

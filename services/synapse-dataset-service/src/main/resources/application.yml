@@ -1,0 +1,30 @@
+server:
+  port: 8083
+
+spring:
+  application:
+    name: synapse-dataset-service
+  cloud:
+    nacos:
+      server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+      username: ${NACOS_USERNAME:nacos}
+      password: ${NACOS_PASSWORD:nacos}
+      discovery:
+        group: SYNAPSE_GROUP
+      config:
+        group: SYNAPSE_GROUP
+        file-extension: yaml
+  # 从 Nacos 拉取:共享配置 + 本服务数据源/MyBatis/Redis/MinIO 配置
+  config:
+    import:
+      - optional:nacos:synapse-common.yaml?group=SYNAPSE_GROUP
+      - optional:nacos:synapse-dataset-service.yaml?group=SYNAPSE_GROUP
+  # CSV 上传文件大小上限(multipart)
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+logging:
+  level:
+    com.synapse.dataset: info

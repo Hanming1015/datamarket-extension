@@ -1,0 +1,7 @@
+name,age,email,phone,salary,signup_date,active,city
+Alice Chen,30,alice@example.com,13800000001,50000.50,2024-01-15,true,Shanghai
+Bob Li,25,bob@example.com,13800000002,42000.00,2023-11-02,false,Beijing
+Carol Wang,41,carol@example.com,13800000003,61000.75,2022-06-20,true,Shenzhen
+Dave Zhang,38,dave@example.com,13800000004,55500.25,2021-09-30,true,Guangzhou
+Eve Liu,29,eve@example.com,13800000005,48800.00,2024-03-11,false,Hangzhou
+Frank Wu,52,frank@example.com,13800000006,72000.10,2020-07-08,true,Chengdu

@@ -1,0 +1,436 @@
+{
+  "info": {
+    "_postman_id": "d3f2e4a5-33cc-4d44-9e55-dataset00001",
+    "name": "synapse-dataset",
+    "description": "数据集服务(synapse-dataset-service)接口测试,全部经网关 8080。\n首个请求 login 前置取 token,本 collection 可单独整跑。\n主流程用手工 fieldsSchema 建集(全自动):建集→我的列表(分页/轻量VO)→详情→定价(含负数校验)→报价(实算=30)→删除→删后404。\n末尾两个 CSV 上传请求需**手动选择本地 .csv 文件**,自动 Runner 会跳过。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "login (前置取 token)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "pm.collectionVariables.set(\"token\", body.data.token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"username\": \"test\",\r\n  \"password\": \"123456\"\r\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "login"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "createDataset (手工 schema, 返回 ownerId)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "pm.test(\"生成 id\", () => pm.expect(body.data.id).to.be.a(\"string\").and.not.empty);",
+              "pm.test(\"回显 ownerId\", () => pm.expect(body.data.ownerId).to.be.a(\"string\").and.not.empty);",
+              "pm.test(\"parseStatus=NONE(未传 CSV)\", () => pm.expect(body.data.parseStatus).to.eql(\"NONE\"));",
+              "pm.test(\"fields 由 schema 派生\", () => pm.expect(body.data.fields).to.have.members([\"name\",\"age\",\"ssn\"]));",
+              "pm.collectionVariables.set(\"dsId\", body.data.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"name\": \"PM Dataset\",\r\n  \"description\": \"postman auto\",\r\n  \"category\": \"health\",\r\n  \"fieldsSchema\": [\r\n    { \"name\": \"name\", \"type\": \"string\",  \"sensitive\": true },\r\n    { \"name\": \"age\",  \"type\": \"integer\", \"sensitive\": false },\r\n    { \"name\": \"ssn\",  \"type\": \"string\",  \"sensitive\": true }\r\n  ]\r\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/datasets",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "datasets"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "listOwn (分页 + 轻量 VO)",
+      "protocolProfileBehavior": { "disableBodyPruning": true },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "const p = body.data;",
+              "pm.test(\"分页字段齐全\", () => {",
+              "  pm.expect(p).to.have.all.keys(\"records\",\"total\",\"page\",\"size\",\"pages\");",
+              "  pm.expect(p.records).to.be.an(\"array\");",
+              "});",
+              "pm.test(\"含刚建的数据集\", () => pm.expect(p.records.map(r => r.id)).to.include(pm.collectionVariables.get(\"dsId\")));",
+              "// M1:摘要 VO 不该带 fieldsSchema",
+              "pm.test(\"摘要不含 fieldsSchema\", () => p.records.forEach(r => pm.expect(r).to.not.have.property(\"fieldsSchema\")));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/datasets/list?page=1&size=20",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "datasets", "list"],
+          "query": [ { "key": "page", "value": "1" }, { "key": "size", "value": "20" } ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "getDetail (完整 VO 含 fieldsSchema)",
+      "protocolProfileBehavior": { "disableBodyPruning": true },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "pm.test(\"详情带 fieldsSchema(3 列)\", () => pm.expect(body.data.fieldsSchema).to.have.lengthOf(3));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/datasets/{{dsId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "datasets", "{{dsId}}"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "upsertPricing (合法)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "pm.test(\"回显 datasetId\", () => pm.expect(body.data.datasetId).to.eql(pm.collectionVariables.get(\"dsId\")));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"perAccessBase\": 1,\r\n  \"perField\": 2,\r\n  \"sensitiveFieldMultiplier\": 3,\r\n  \"purposeMultiplierJson\": { \"commercial\": 2.0 }\r\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/datasets/{{dsId}}/pricing",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "datasets", "{{dsId}}", "pricing"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "upsertPricing (负数 -> 400)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// M3:校验失败走业务信封,HTTP 仍 200,业务码 400",
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 400(perField 负数被拦)\", () => pm.expect(body.code).to.eql(400));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"perAccessBase\": 1,\r\n  \"perField\": -5,\r\n  \"sensitiveFieldMultiplier\": 2\r\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/datasets/{{dsId}}/pricing",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "datasets", "{{dsId}}", "pricing"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "quote (实算 total=30)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "const d = body.data;",
+              "// 普通 age=2;敏感 name+ssn=2*3*2=12;字段合计14;总计(1+14)*2=30",
+              "pm.test(\"baseCost=1\", () => pm.expect(Number(d.baseCost)).to.eql(1));",
+              "pm.test(\"fieldCost(普通)=2\", () => pm.expect(Number(d.fieldCost)).to.eql(2));",
+              "pm.test(\"sensitiveFieldCost=12\", () => pm.expect(Number(d.sensitiveFieldCost)).to.eql(12));",
+              "pm.test(\"purposeMultiplier=2\", () => pm.expect(Number(d.purposeMultiplier)).to.eql(2));",
+              "pm.test(\"totalCost=30\", () => pm.expect(Number(d.totalCost)).to.eql(30));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"allowedFields\": [\"name\", \"age\", \"ssn\"],\r\n  \"purpose\": \"commercial\"\r\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/datasets/{{dsId}}/quote",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "datasets", "{{dsId}}", "quote"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "getPricing",
+      "protocolProfileBehavior": { "disableBodyPruning": true },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "pm.test(\"perField=2\", () => pm.expect(Number(body.data.perField)).to.eql(2));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/datasets/{{dsId}}/pricing",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "datasets", "{{dsId}}", "pricing"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "deleteDataset",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "pm.test(\"业务码 200\", () => pm.expect(pm.response.json().code).to.eql(200));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/datasets/{{dsId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "datasets", "{{dsId}}"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "getDetail after delete (404)",
+      "protocolProfileBehavior": { "disableBodyPruning": true },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "pm.test(\"业务码 404\", () => pm.expect(pm.response.json().code).to.eql(404));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/datasets/{{dsId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "datasets", "{{dsId}}"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "[手动] createDataset for upload",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "pm.collectionVariables.set(\"dsId2\", body.data.id);",
+              "console.log(\"上传用 dsId2 = \" + body.data.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"name\": \"CSV Upload Dataset\",\r\n  \"category\": \"hr\"\r\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/datasets",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "datasets"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "[手动] uploadCsv (选择本地 .csv)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "pm.test(\"parseStatus=UPLOADED\", () => pm.expect(body.data.parseStatus).to.eql(\"UPLOADED\"));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+        "method": "PUT",
+        "header": [],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            { "key": "file", "type": "file", "src": [], "description": "在 Postman 里点这里选一个本地 .csv 文件(如 name,age,email 表头)" }
+          ]
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/datasets/{{dsId2}}/file",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "datasets", "{{dsId2}}", "file"]
+        },
+        "description": "multipart 上传 CSV。字段名 file,需手动选择本地文件;自动 Runner 无文件会失败,属正常。"
+      },
+      "response": []
+    },
+    {
+      "name": "[手动] parse-status (轮询解析)",
+      "protocolProfileBehavior": { "disableBodyPruning": true },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "console.log(\"parseStatus = \" + body.data.parseStatus + \", recordCount = \" + body.data.recordCount);",
+              "pm.test(\"状态在预期集合内\", () => pm.expect([\"UPLOADED\",\"PARSING\",\"READY\",\"FAILED\"]).to.include(body.data.parseStatus));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "bearer", "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ] },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/datasets/{{dsId2}}/parse-status",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "datasets", "{{dsId2}}", "parse-status"]
+        }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" },
+    { "key": "token", "value": "", "type": "string" },
+    { "key": "dsId", "value": "", "type": "string" },
+    { "key": "dsId2", "value": "", "type": "string" }
+  ]
+}

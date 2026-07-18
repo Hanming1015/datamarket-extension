@@ -34,7 +34,8 @@
         <module>synapse-gateway</module>
         <module>synapse-auth-service</module>
         <module>synapse-consent-service</module>
-        <!-- 后续阶段逐步加入:dataset-service / ... -->
+        <module>synapse-dataset-service</module>
+        <!-- 后续阶段逐步加入:access-service / ... -->
     </modules>
 
     <dependencyManagement>
