@@ -86,6 +86,7 @@ USE synapse_consent;
 
 CREATE TABLE IF NOT EXISTS consent_rules (
     id               VARCHAR(64) NOT NULL,
+    owner_id         VARCHAR(64),              -- 创建者/数据所有者(网关注入的 X-User-Id)
     dataset_id       VARCHAR(64),
     allowed_roles    JSON,                     -- List<String>
     allowed_purposes JSON,
@@ -97,7 +98,8 @@ CREATE TABLE IF NOT EXISTS consent_rules (
     revoked_at       DATETIME,
     created_at       DATETIME,
     PRIMARY KEY (id),
-    KEY idx_consent_dataset (dataset_id)
+    KEY idx_consent_dataset (dataset_id),
+    KEY idx_consent_owner (owner_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =====================================================================

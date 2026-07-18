@@ -1,0 +1,220 @@
+{
+  "info": {
+    "_postman_id": "a1f0c2d3-11aa-4b22-9c33-auth00000001",
+    "name": "synapse-auth",
+    "description": "认证服务(synapse-auth-service)接口测试,全部经网关 8080。\nlogin 会自动把 token 存进集合变量 {{token}},后续 getInfo 直接引用。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "login",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "pm.test(\"返回了 token\", () => pm.expect(body.data.token).to.be.a(\"string\").and.not.empty);",
+              "pm.collectionVariables.set(\"token\", body.data.token);",
+              "console.log(\"token 已存入集合变量\");"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"username\": \"test\",\r\n  \"password\": \"123456\"\r\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "login"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "getInfo (valid token)",
+      "protocolProfileBehavior": { "disableBodyPruning": true },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "pm.test(\"返回用户且不含 password\", () => {",
+              "  pm.expect(body.data.username).to.eql(\"test\");",
+              "  pm.expect(body.data).to.not.have.property(\"password\");",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/info",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "info"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "register (role escalation blocked)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// 随机用户名,避免重复跑撞 \"username already taken\"",
+              "pm.collectionVariables.set(\"regUser\", \"alice_\" + Date.now());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "// 请求里传了 role=admin,服务端应忽略并强制 consumer(防越权)",
+              "pm.test(\"role 被强制为 consumer(越权被拦)\", () => pm.expect(body.data.role).to.eql(\"consumer\"));",
+              "pm.test(\"返回不含 password\", () => pm.expect(body.data).to.not.have.property(\"password\"));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"username\": \"{{regUser}}\",\r\n  \"password\": \"abc123\",\r\n  \"name\": \"Alice\",\r\n  \"email\": \"alice@x.com\",\r\n  \"role\": \"admin\"\r\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/register",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "register"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "getInfo (no token -> 401)",
+      "protocolProfileBehavior": { "disableBodyPruning": true },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 401\", () => pm.expect(body.code).to.eql(401));",
+              "pm.test(\"提示 missing token\", () => pm.expect(body.message).to.include(\"missing token\"));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/info",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "info"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "getInfo (fake token -> 401)",
+      "protocolProfileBehavior": { "disableBodyPruning": true },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 401\", () => pm.response.to.have.status(401));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 401\", () => pm.expect(body.code).to.eql(401));",
+              "pm.test(\"提示 invalid token\", () => pm.expect(body.message).to.include(\"invalid token\"));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [ { "key": "token", "value": "fake.token.here", "type": "string" } ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/info",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "info"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "getInfo (spoofed X-User-Id -> 401)",
+      "protocolProfileBehavior": { "disableBodyPruning": true },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// 只塞假身份头、不带 token:网关应剥掉该头,下游仍拿不到身份 -> 401",
+              "pm.test(\"HTTP 401(伪造头被剥离)\", () => pm.response.to.have.status(401));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 401\", () => pm.expect(body.code).to.eql(401));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": { "type": "noauth" },
+        "method": "GET",
+        "header": [
+          { "key": "X-User-Id", "value": "seed-user-0000000000000000000000000000", "type": "text" }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/info",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "info"]
+        }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" },
+    { "key": "token", "value": "", "type": "string" },
+    { "key": "regUser", "value": "", "type": "string" }
+  ]
+}

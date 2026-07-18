@@ -33,7 +33,8 @@
         <module>synapse-common</module>
         <module>synapse-gateway</module>
         <module>synapse-auth-service</module>
-        <!-- 后续阶段逐步加入:dataset-service / consent-service / ... -->
+        <module>synapse-consent-service</module>
+        <!-- 后续阶段逐步加入:dataset-service / ... -->
     </modules>
 
     <dependencyManagement>

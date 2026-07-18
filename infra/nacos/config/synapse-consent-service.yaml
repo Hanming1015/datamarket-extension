@@ -1,0 +1,19 @@
+# =====================================================================
+# Nacos 配置 · Data ID: synapse-consent-service.yaml · Group: SYNAPSE_GROUP
+# consent-service 专属:数据源(连本机 docker MySQL 的 synapse_consent 库)+ MyBatis-Plus。
+# 服务运行在宿主机,故连 127.0.0.1:3307(容器 3306 映射到宿主 3307)。
+# __MYSQL_ROOT_PASSWORD__ 由 import-config.ps1 从 infra/.env 替换。
+# =====================================================================
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3307/synapse_consent?useSSL=false&serverTimezone=UTC&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
+    username: root
+    password: __MYSQL_ROOT_PASSWORD__
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: assign_uuid

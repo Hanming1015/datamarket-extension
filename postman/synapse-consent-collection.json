@@ -1,0 +1,297 @@
+{
+  "info": {
+    "_postman_id": "c2e1d3f4-22bb-4c33-8d44-consent0001",
+    "name": "synapse-consent",
+    "description": "授权服务(synapse-consent-service)接口测试,全部经网关 8080。\n首个请求 login 前置取 token(存进 {{token}}),因此本 collection 可单独整跑。\n每次运行用 {{dsId}}=ds-pm-<时间戳> 隔离,保证幂等可重复:login -> 建规则(回显 ownerId)-> 列表(owner 收敛)-> 匹配(partial)-> 撤销 -> 撤销后匹配(rejected)-> 撤销他人规则(404)。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "login (前置取 token)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "pm.test(\"返回了 token\", () => pm.expect(body.data.token).to.be.a(\"string\").and.not.empty);",
+              "pm.collectionVariables.set(\"token\", body.data.token);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"username\": \"test\",\r\n  \"password\": \"123456\"\r\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/auth/login",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "auth", "login"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "createRule (返回 ownerId)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// 每次运行用独立 datasetId,隔离历史规则,保证幂等可重复",
+              "pm.collectionVariables.set(\"dsId\", \"ds-pm-\" + Date.now());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "pm.test(\"生成了 id\", () => pm.expect(body.data.id).to.be.a(\"string\").and.not.empty);",
+              "// HIGH 改动:创建者由网关 X-User-Id 写入,必须回显",
+              "pm.test(\"回显 ownerId(创建者归属)\", () => pm.expect(body.data.ownerId).to.be.a(\"string\").and.not.empty);",
+              "pm.test(\"status=active 且有 validFrom\", () => {",
+              "  pm.expect(body.data.status).to.eql(\"active\");",
+              "  pm.expect(body.data.validFrom).to.be.a(\"string\").and.not.empty;",
+              "});",
+              "pm.collectionVariables.set(\"ruleId\", body.data.id);",
+              "pm.collectionVariables.set(\"ownerId\", body.data.ownerId);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"datasetId\": \"{{dsId}}\",\r\n  \"allowedRoles\": [\"researcher\"],\r\n  \"allowedPurposes\": [\"research\"],\r\n  \"allowedFields\": [\"name\", \"age\"],\r\n  \"deniedFields\": [\"ssn\"],\r\n  \"validUntil\": \"2027-12-31\"\r\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/consent/rules",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "consent", "rules"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "listRules (owner 收敛)",
+      "protocolProfileBehavior": { "disableBodyPruning": true },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "pm.test(\"含刚建的规则\", () => {",
+              "  const ids = body.data.map(r => r.id);",
+              "  pm.expect(ids).to.include(pm.collectionVariables.get(\"ruleId\"));",
+              "});",
+              "// HIGH 改动:list 强制按 owner 过滤,返回的每条都应属于当前用户",
+              "pm.test(\"每条 ownerId 都是当前用户\", () => {",
+              "  const me = pm.collectionVariables.get(\"ownerId\");",
+              "  body.data.forEach(r => pm.expect(r.ownerId).to.eql(me));",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ]
+        },
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/consent/rules?datasetId={{dsId}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "consent", "rules"],
+          "query": [ { "key": "datasetId", "value": "{{dsId}}" } ]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "match (partial)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "const d = body.data;",
+              "pm.test(\"decision=partial\", () => pm.expect(d.decision).to.eql(\"partial\"));",
+              "pm.test(\"允许 name/age\", () => pm.expect(d.allowedFields).to.have.members([\"name\", \"age\"]));",
+              "pm.test(\"拒绝 ssn(黑名单)/email(不在白名单)\", () => pm.expect(d.deniedFields).to.have.members([\"ssn\", \"email\"]));",
+              "pm.test(\"reasons 说明\", () => {",
+              "  pm.expect(d.reasons.ssn).to.include(\"denied\");",
+              "  pm.expect(d.reasons.email).to.include(\"not in\");",
+              "});"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"datasetId\": \"{{dsId}}\",\r\n  \"consumerType\": \"researcher\",\r\n  \"purpose\": \"research\",\r\n  \"requestedFields\": [\"name\", \"age\", \"ssn\", \"email\"]\r\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/consent/match",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "consent", "match"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "revokeRule (自己的)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ]
+        },
+        "method": "PUT",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/consent/rules/{{ruleId}}/revoke",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "consent", "rules", "{{ruleId}}", "revoke"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "match after revoke (rejected)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "pm.test(\"decision=rejected\", () => pm.expect(body.data.decision).to.eql(\"rejected\"));",
+              "pm.test(\"denyReason 说明无有效规则\", () => pm.expect(body.data.denyReason).to.include(\"No active\"));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ]
+        },
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\r\n  \"datasetId\": \"{{dsId}}\",\r\n  \"consumerType\": \"researcher\",\r\n  \"purpose\": \"research\",\r\n  \"requestedFields\": [\"name\", \"age\", \"ssn\", \"email\"]\r\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{baseUrl}}/api/consent/match",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "consent", "match"]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "revoke other's rule (404 不泄露存在性)",
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// 一个不属于当前用户/不存在的随机 id",
+              "pm.collectionVariables.set(\"fakeId\", \"nonexistent-\" + Date.now());"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// 业务错误走统一信封:HTTP 仍 200,业务码 404",
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));",
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 404(越权撤销当作不存在)\", () => pm.expect(body.code).to.eql(404));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "auth": {
+          "type": "bearer",
+          "bearer": [ { "key": "token", "value": "{{token}}", "type": "string" } ]
+        },
+        "method": "PUT",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/consent/rules/{{fakeId}}/revoke",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "consent", "rules", "{{fakeId}}", "revoke"]
+        }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:8080", "type": "string" },
+    { "key": "token", "value": "", "type": "string" },
+    { "key": "dsId", "value": "", "type": "string" },
+    { "key": "ruleId", "value": "", "type": "string" },
+    { "key": "ownerId", "value": "", "type": "string" },
+    { "key": "fakeId", "value": "", "type": "string" }
+  ]
+}
