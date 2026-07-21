@@ -36,7 +36,9 @@
         <module>synapse-consent-service</module>
         <module>synapse-dataset-service</module>
         <module>synapse-access-service</module>
-        <!-- 后续阶段逐步加入:payment / billing / audit / notification -->
+        <module>synapse-billing-service</module>
+        <module>synapse-audit-service</module>
+        <!-- 后续阶段逐步加入:payment / notification -->
     </modules>
 
     <dependencyManagement>

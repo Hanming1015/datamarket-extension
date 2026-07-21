@@ -1,11 +1,20 @@
 # =====================================================================
 # Nacos 配置 · Data ID: synapse-common.yaml · Group: SYNAPSE_GROUP
-# 所有服务共享:JWT 签名参数。gateway 与 auth-service 都 import 本文件,
-# 保证同一把密钥 -> token 互通(也与旧单体互通)。
-# __JWT_SECRET__ 由 import-config.ps1 从 infra/.env 替换,不提交真实值。
+# 所有服务共享:JWT 签名参数 + RabbitMQ 连接。
+# gateway/auth/consent/dataset/access/billing/audit 都 import 本文件:
+#   - 同一把 JWT 密钥 -> token 互通(也与旧单体互通);
+#   - 同一套 RabbitMQ 连接 -> 生产者/消费者连同一个 broker(仅引 amqp starter 的服务实际用到)。
+# __VAR__ 占位符由 import-config.ps1 从 infra/.env 替换,不提交真实值。
 # =====================================================================
 synapse:
   jwt:
     secret: __JWT_SECRET__
     issuer: sg
     ttl-millis: 1209600000   # 14 天
+
+spring:
+  rabbitmq:
+    host: 127.0.0.1
+    port: 5672
+    username: __RABBITMQ_USER__
+    password: __RABBITMQ_PASSWORD__

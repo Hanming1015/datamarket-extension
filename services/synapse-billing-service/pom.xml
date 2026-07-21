@@ -10,28 +10,24 @@
         <version>0.0.1-SNAPSHOT</version>
     </parent>
 
-    <artifactId>synapse-access-service</artifactId>
-    <name>synapse-access-service</name>
-    <description>访问申请编排服务:Feign 调 consent/dataset + 人工审批状态机 + Redis 幂等锁(Phase 3a)</description>
+    <artifactId>synapse-billing-service</artifactId>
+    <name>synapse-billing-service</name>
+    <description>计费服务:消费 access.approved 事件异步入账 + 账单查询(Phase 3b MQ 消费者)</description>
 
     <dependencies>
-        <!-- Web(servlet 栈)-->
+        <!-- Web(servlet 栈):只读账单查询 API -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
+        <!-- 校验:common 的 GlobalExceptionHandler 引用 ConstraintViolationException,
+             servlet 服务需在 classpath 提供 jakarta.validation(否则装配 advice 时 NoClassDefFound)-->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
-        <!-- Redis:分布式锁 / 下单幂等(3a 首次把 Redis 当锁用)-->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-data-redis</artifactId>
-        </dependency>
-
-        <!-- RabbitMQ(Phase 3b):审批后发布 access.approved/rejected 事件 -->
+        <!-- RabbitMQ:消费 access.approved 事件 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-amqp</artifactId>
@@ -58,24 +54,13 @@
             <artifactId>spring-cloud-starter-alibaba-nacos-config</artifactId>
         </dependency>
 
-        <!-- OpenFeign:声明式跨服务调用(3a 首次引入)-->
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-openfeign</artifactId>
-        </dependency>
-        <!-- 客户端负载均衡:Feign 用 lb://服务名 经 Nacos 发现挑实例 -->
-        <dependency>
-            <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
-        </dependency>
-
-        <!-- 公共模块:Result / 异常 / 常量 -->
+        <!-- 公共模块:Result / 异常 / MQ 常量 / 事件体 -->
         <dependency>
             <groupId>com.synapse</groupId>
             <artifactId>synapse-common</artifactId>
         </dependency>
 
-        <!-- Lombok(common 里的是 optional 不传递,本模块用 @Data 需自行声明)-->
+        <!-- Lombok(common 里的是 optional 不传递)-->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>

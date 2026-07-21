@@ -1,0 +1,25 @@
+server:
+  port: 8087
+
+spring:
+  application:
+    name: synapse-audit-service
+  cloud:
+    nacos:
+      server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+      username: ${NACOS_USERNAME:nacos}
+      password: ${NACOS_PASSWORD:nacos}
+      discovery:
+        group: SYNAPSE_GROUP
+      config:
+        group: SYNAPSE_GROUP
+        file-extension: yaml
+  # 从 Nacos 拉取:共享配置(JWT + RabbitMQ 连接)+ 本服务数据源/MyBatis/监听器配置
+  config:
+    import:
+      - optional:nacos:synapse-common.yaml?group=SYNAPSE_GROUP
+      - optional:nacos:synapse-audit-service.yaml?group=SYNAPSE_GROUP
+
+logging:
+  level:
+    com.synapse.audit: info

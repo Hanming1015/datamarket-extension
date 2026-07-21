@@ -44,6 +44,22 @@
             <optional>true</optional>
         </dependency>
 
+        <!-- RabbitMQ(Phase 3b):事件体 + 共享消息转换器在此定义;
+             optional 仅供本模块编译期解析,不强制传递——只有引 amqp starter 的服务(access/billing/audit)才装配 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- JavaTime(LocalDateTime)的 Jackson 支持:RabbitSupportConfig 编译期需要;
+             optional,运行期由各服务的 web starter 传递实际提供 -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+            <optional>true</optional>
+        </dependency>
+
         <!-- jjwt -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>

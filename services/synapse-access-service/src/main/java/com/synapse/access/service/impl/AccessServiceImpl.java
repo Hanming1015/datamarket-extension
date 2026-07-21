@@ -20,12 +20,15 @@ import com.synapse.access.vo.AccessSummaryVO;
 import com.synapse.access.vo.PageResult;
 import com.synapse.common.api.Result;
 import com.synapse.common.api.ResultCode;
+import com.synapse.common.event.AccessEvent;
 import com.synapse.common.exception.BusinessException;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -33,6 +36,7 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * 默认 {@link AccessService}。编排 = Feign 组合 + 状态机;人工审批 = owner 归属校验 + 合法流转。
@@ -55,6 +59,9 @@ public class AccessServiceImpl implements AccessService {
 
     @Autowired
     private StringRedisTemplate redisTemplate;
+
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
 
     @Value("${synapse.access.lock-ttl-seconds:10}")
     private long lockTtlSeconds;
@@ -158,6 +165,7 @@ public class AccessServiceImpl implements AccessService {
     }
 
     @Override
+    @Transactional
     public AccessRequestVO approve(String id, String ownerId) {
         AccessRequest ar = mustOwn(id, ownerId);
         transition(ar, AccessStatus.GRANTED);   // 3c 将改为进入 PENDING_PAYMENT
@@ -165,10 +173,13 @@ public class AccessServiceImpl implements AccessService {
         ar.setApprovedAt(LocalDateTime.now());
         ar.setRespondedAt(LocalDateTime.now());
         accessRequestMapper.updateById(ar);
+        // 事务提交后才投递(见 AccessEventPublisher):批准 -> 计费 + 审计异步消费
+        eventPublisher.publishEvent(toEvent(ar, "APPROVED"));
         return toVO(ar);
     }
 
     @Override
+    @Transactional
     public AccessRequestVO reject(String id, String ownerId, String reason) {
         AccessRequest ar = mustOwn(id, ownerId);
         transition(ar, AccessStatus.REJECTED);
@@ -179,6 +190,8 @@ public class AccessServiceImpl implements AccessService {
             ar.setDenialReasons(withReason(ar.getDenialReasons(), reason));
         }
         accessRequestMapper.updateById(ar);
+        // 驳回只进审计(billing 不绑 access.rejected)
+        eventPublisher.publishEvent(toEvent(ar, "REJECTED"));
         return toVO(ar);
     }
 
@@ -235,6 +248,24 @@ public class AccessServiceImpl implements AccessService {
             throw new BusinessException(result.getCode(), msg);
         }
         return result.getData();
+    }
+
+    /** 由申请行组装扇出事件;eventId 供消费端幂等去重。 */
+    private AccessEvent toEvent(AccessRequest ar, String decision) {
+        AccessEvent e = new AccessEvent();
+        e.setEventId(UUID.randomUUID().toString());
+        e.setEventType("ACCESS_" + decision);
+        e.setAccessRequestId(ar.getId());
+        e.setRequesterId(ar.getRequesterId());
+        e.setRequesterName(ar.getRequesterName());
+        e.setDatasetId(ar.getDatasetId());
+        e.setDatasetName(ar.getDatasetName());
+        e.setConsumerType(ar.getConsumerType());
+        e.setPurpose(ar.getPurpose());
+        e.setCost("APPROVED".equals(decision) ? ar.getCost() : BigDecimal.ZERO);
+        e.setDecision(decision);
+        e.setApproverId(ar.getApproverId());
+        return e;
     }
 
     private AccessRequestVO toVO(AccessRequest ar) {

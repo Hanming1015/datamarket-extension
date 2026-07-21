@@ -1,0 +1,31 @@
+# =====================================================================
+# Nacos 配置 · Data ID: synapse-audit-service.yaml · Group: SYNAPSE_GROUP
+# audit-service 专属:数据源(synapse_audit)+ MyBatis-Plus + MQ 监听器重试/死信。
+# RabbitMQ 连接参数在共享的 synapse-common.yaml 里。
+# 形如 双下划线包裹的占位符 由 import-config.ps1 从 infra/.env 替换。
+# =====================================================================
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3307/synapse_audit?useSSL=false&serverTimezone=UTC&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
+    username: root
+    password: __MYSQL_ROOT_PASSWORD__
+  rabbitmq:
+    listener:
+      simple:
+        acknowledge-mode: auto
+        # 消费抛异常且重试耗尽 -> 不重新入队,直接走死信交换机到 *.dlq
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000ms
+          multiplier: 2.0
+          max-interval: 10000ms
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: assign_uuid

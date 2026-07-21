@@ -1,1 +1,2 @@
 com.synapse.common.config.CommonAutoConfiguration
+com.synapse.common.config.RabbitSupportConfig
