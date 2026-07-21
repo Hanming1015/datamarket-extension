@@ -50,6 +50,12 @@ public class BillingMqConfig {
         return BindingBuilder.bind(billingQueue()).to(eventExchange()).with(MqConstants.RK_ACCESS_APPROVED);
     }
 
+    /** 3c:同一队列再绑 payment.succeeded,收到后把对应账单对账为 PAID。 */
+    @Bean
+    public Binding billingPaymentBinding() {
+        return BindingBuilder.bind(billingQueue()).to(eventExchange()).with(MqConstants.RK_PAYMENT_SUCCEEDED);
+    }
+
     @Bean
     public Binding billingDlqBinding() {
         return BindingBuilder.bind(billingDlq()).to(dlxExchange()).with(MqConstants.BILLING_DLQ);

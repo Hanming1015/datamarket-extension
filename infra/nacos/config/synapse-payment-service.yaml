@@ -1,0 +1,31 @@
+# =====================================================================
+# Nacos 配置 · Data ID: synapse-payment-service.yaml · Group: SYNAPSE_GROUP
+# payment-service 专属:数据源(synapse_payment)+ MyBatis-Plus + Feign + outbox relay + 支付提供方开关。
+# RabbitMQ 连接参数在共享的 synapse-common.yaml 里。
+# 形如 双下划线包裹的占位符 由 import-config.ps1 从 infra/.env 替换。
+# =====================================================================
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3307/synapse_payment?useSSL=false&serverTimezone=UTC&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
+    username: root
+    password: __MYSQL_ROOT_PASSWORD__
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: assign_uuid
+
+feign:
+  client:
+    config:
+      default:
+        connect-timeout: 3000
+        read-timeout: 5000
+
+synapse:
+  payment:
+    provider: mock          # c1 用 mock 收银台;接真 Stripe 时改 stripe
+    outbox-relay-ms: 2000    # outbox relay 轮询间隔(ms)

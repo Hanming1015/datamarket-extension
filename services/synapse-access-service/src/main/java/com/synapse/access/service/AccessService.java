@@ -1,6 +1,7 @@
 package com.synapse.access.service;
 
 import com.synapse.access.dto.CreateAccessRequest;
+import com.synapse.access.vo.AccessInternalVO;
 import com.synapse.access.vo.AccessRequestVO;
 import com.synapse.access.vo.AccessSummaryVO;
 import com.synapse.access.vo.PageResult;
@@ -21,7 +22,7 @@ public interface AccessService {
     /** 待我(owner)审批的申请(PENDING_APPROVAL),分页。 */
     PageResult<AccessSummaryVO> listPending(String ownerId, long page, long size);
 
-    /** owner 批准 → GRANTED。 */
+    /** owner 批准 → PENDING_PAYMENT(3c:待支付)。 */
     AccessRequestVO approve(String id, String ownerId);
 
     /** owner 驳回 → REJECTED。 */
@@ -29,4 +30,10 @@ public interface AccessService {
 
     /** 详情(仅 requester 或 owner 可见,否则当作不存在)。 */
     AccessRequestVO get(String id, String currentUserId);
+
+    /** 支付成功回调驱动:PENDING_PAYMENT → GRANTED(幂等,供 MQ 消费者调用)。 */
+    void markGrantedByPayment(String accessRequestId);
+
+    /** 服务间内部视图(无身份收敛,仅经不公开的 /internal 路径 + Feign 直连访问)。 */
+    AccessInternalVO getInternal(String id);
 }

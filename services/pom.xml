@@ -38,7 +38,8 @@
         <module>synapse-access-service</module>
         <module>synapse-billing-service</module>
         <module>synapse-audit-service</module>
-        <!-- 后续阶段逐步加入:payment / notification -->
+        <module>synapse-payment-service</module>
+        <!-- 后续阶段逐步加入:notification -->
     </modules>
 
     <dependencyManagement>

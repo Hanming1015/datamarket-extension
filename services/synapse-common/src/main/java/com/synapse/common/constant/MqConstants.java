@@ -20,11 +20,14 @@ public final class MqConstants {
     public static final String AUDIT_QUEUE = "synapse.audit.queue";
     public static final String NOTIFICATION_QUEUE = "synapse.notification.queue";
     public static final String PAYMENT_QUEUE = "synapse.payment.queue";
+    /** access 作为消费者:收 payment.succeeded 把 PENDING_PAYMENT 推进到 GRANTED(Phase 3c)。 */
+    public static final String ACCESS_QUEUE = "synapse.access.queue";
 
     // ---- dead-letter queues ----
     public static final String BILLING_DLQ = "synapse.billing.dlq";
     public static final String AUDIT_DLQ = "synapse.audit.dlq";
     public static final String NOTIFICATION_DLQ = "synapse.notification.dlq";
+    public static final String ACCESS_DLQ = "synapse.access.dlq";
 
     // ---- routing keys (topic) ----
     public static final String RK_ACCESS_APPROVED = "access.approved";

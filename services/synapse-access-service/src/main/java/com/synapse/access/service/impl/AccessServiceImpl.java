@@ -14,18 +14,20 @@ import com.synapse.access.dto.CreateAccessRequest;
 import com.synapse.access.entity.AccessRequest;
 import com.synapse.access.mapper.AccessRequestMapper;
 import com.synapse.access.service.AccessService;
+import com.synapse.access.service.OutboxService;
 import com.synapse.access.statemachine.AccessStatus;
+import com.synapse.access.vo.AccessInternalVO;
 import com.synapse.access.vo.AccessRequestVO;
 import com.synapse.access.vo.AccessSummaryVO;
 import com.synapse.access.vo.PageResult;
 import com.synapse.common.api.Result;
 import com.synapse.common.api.ResultCode;
+import com.synapse.common.constant.MqConstants;
 import com.synapse.common.event.AccessEvent;
 import com.synapse.common.exception.BusinessException;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,7 +63,7 @@ public class AccessServiceImpl implements AccessService {
     private StringRedisTemplate redisTemplate;
 
     @Autowired
-    private ApplicationEventPublisher eventPublisher;
+    private OutboxService outboxService;
 
     @Value("${synapse.access.lock-ttl-seconds:10}")
     private long lockTtlSeconds;
@@ -168,13 +170,15 @@ public class AccessServiceImpl implements AccessService {
     @Transactional
     public AccessRequestVO approve(String id, String ownerId) {
         AccessRequest ar = mustOwn(id, ownerId);
-        transition(ar, AccessStatus.GRANTED);   // 3c 将改为进入 PENDING_PAYMENT
+        // 3c:批准不再直接授权,先进"待支付";付款成功后由 payment.succeeded 推进到 GRANTED
+        transition(ar, AccessStatus.PENDING_PAYMENT);
         ar.setApproverId(ownerId);
         ar.setApprovedAt(LocalDateTime.now());
         ar.setRespondedAt(LocalDateTime.now());
         accessRequestMapper.updateById(ar);
-        // 事务提交后才投递(见 AccessEventPublisher):批准 -> 计费 + 审计异步消费
-        eventPublisher.publishEvent(toEvent(ar, "APPROVED"));
+        // outbox:与状态更新同事务落一条待发消息(补上 3b 的 dual-write 缺口)
+        // billing 收 access.approved 先记 UNPAID 账单,等支付成功再对账为 PAID
+        outboxService.record(MqConstants.RK_ACCESS_APPROVED, toEvent(ar, "APPROVED"));
         return toVO(ar);
     }
 
@@ -191,8 +195,24 @@ public class AccessServiceImpl implements AccessService {
         }
         accessRequestMapper.updateById(ar);
         // 驳回只进审计(billing 不绑 access.rejected)
-        eventPublisher.publishEvent(toEvent(ar, "REJECTED"));
+        outboxService.record(MqConstants.RK_ACCESS_REJECTED, toEvent(ar, "REJECTED"));
         return toVO(ar);
+    }
+
+    @Override
+    @Transactional
+    public void markGrantedByPayment(String accessRequestId) {
+        AccessRequest ar = accessRequestMapper.selectById(accessRequestId);
+        if (ar == null) {
+            return;   // 找不到就丢弃(不该发生;不抛以免无谓重投)
+        }
+        AccessStatus current = AccessStatus.fromDb(ar.getStatus());
+        if (current == AccessStatus.GRANTED) {
+            return;   // 幂等:payment.succeeded 可能重复投递,已授权则跳过
+        }
+        transition(ar, AccessStatus.GRANTED);
+        ar.setRespondedAt(LocalDateTime.now());
+        accessRequestMapper.updateById(ar);
     }
 
     @Override
@@ -203,6 +223,17 @@ public class AccessServiceImpl implements AccessService {
             throw new BusinessException(ResultCode.NOT_FOUND);
         }
         return toVO(ar);
+    }
+
+    @Override
+    public AccessInternalVO getInternal(String id) {
+        AccessRequest ar = accessRequestMapper.selectById(id);
+        if (ar == null) {
+            throw new BusinessException(ResultCode.NOT_FOUND);
+        }
+        AccessInternalVO vo = new AccessInternalVO();
+        BeanUtils.copyProperties(ar, vo);
+        return vo;
     }
 
     // ---- helpers ----

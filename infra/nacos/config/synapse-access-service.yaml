@@ -16,6 +16,18 @@ spring:
       port: 6379
       password: __REDIS_PASSWORD__
       timeout: 3000ms
+  rabbitmq:
+    listener:
+      simple:
+        acknowledge-mode: auto
+        # 消费 payment.succeeded 抛异常且重试耗尽 -> 走死信到 synapse.access.dlq
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000ms
+          multiplier: 2.0
+          max-interval: 10000ms
 
 mybatis-plus:
   configuration:
@@ -32,7 +44,8 @@ feign:
         connect-timeout: 3000
         read-timeout: 5000
 
-# 下单幂等锁参数(自定义前缀 synapse.access,由 @Value 注入)
+# 下单幂等锁 + outbox relay 参数(自定义前缀 synapse.access,由 @Value 注入)
 synapse:
   access:
-    lock-ttl-seconds: 10   # 同一 requester+dataset 提交的 Redis 锁持有时长
+    lock-ttl-seconds: 10       # 同一 requester+dataset 提交的 Redis 锁持有时长
+    outbox-relay-ms: 2000      # outbox relay 轮询间隔(ms)

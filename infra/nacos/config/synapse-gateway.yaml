@@ -31,6 +31,10 @@ spring:
           uri: lb://synapse-audit-service
           predicates:
             - Path=/api/audit/**
+        - id: synapse-payment-service
+          uri: lb://synapse-payment-service
+          predicates:
+            - Path=/api/payments/**
 
 # 网关鉴权白名单:命中这些路径的请求跳过 JWT 校验(登录/注册本就没 token)。
 synapse:

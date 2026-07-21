@@ -1,4 +1,4 @@
-package com.synapse.access;
+package com.synapse.payment;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -6,15 +6,15 @@ import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
- * 访问申请编排服务启动类。
- * {@link EnableFeignClients} 开启声明式 RPC(Feign 调 consent/dataset,3c 加调 payment 前不需要);
- * {@link EnableScheduling} 供 3c 的 outbox relay 定时轮询发件。
+ * 支付服务启动类(Phase 3c)。
+ * {@link EnableFeignClients} 调 access 内部视图取金额;{@link EnableScheduling} 供 outbox relay。
  */
 @EnableFeignClients
 @EnableScheduling
 @SpringBootApplication
-public class AccessApplication {
+public class PaymentApplication {
+
     public static void main(String[] args) {
-        SpringApplication.run(AccessApplication.class, args);
+        SpringApplication.run(PaymentApplication.class, args);
     }
 }
