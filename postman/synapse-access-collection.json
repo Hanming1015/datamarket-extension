@@ -1,0 +1,312 @@
+{
+  "info": {
+    "_postman_id": "a7c1e2b3-44dd-4e55-8f66-access000001",
+    "name": "synapse-access",
+    "description": "访问申请编排 + 人工审批(synapse-access-service, Phase 3a),全部经网关 8080。\n可单独整跑:owner(test)与 consumer(consumer_p3)双 token;owner 造数据集/定价/授权规则,consumer 提交申请走审批状态机。\n覆盖:编排(3 个 Feign)→ PENDING_APPROVAL → 批准 GRANTED / 驳回 REJECTED / 引擎直拒 / 幂等重复提交 400 / 越权审批 404 / 自我申请 400。\n末尾 cleanup 删除测试数据集。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "login owner (test) → ownerToken",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+              "pm.collectionVariables.set(\"ownerToken\", body.data.token);",
+              "pm.collectionVariables.set(\"ownerId\", body.data.user.id);"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": { "mode": "raw", "raw": "{\n  \"username\": \"test\",\n  \"password\": \"123456\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+      },
+      "response": []
+    },
+    {
+      "name": "register consumer (幂等:已存在则忽略)",
+      "event": [
+        {
+          "listen": "test",
+          "script": { "type": "text/javascript", "exec": [
+            "pm.test(\"已注册或已存在\", () => pm.expect([200,4000,400]).to.include(pm.response.json().code));"
+          ] }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": { "mode": "raw", "raw": "{\n  \"username\": \"consumer_p3\",\n  \"password\": \"123456\",\n  \"name\": \"Consumer P3\",\n  \"email\": \"cp3@example.com\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "{{baseUrl}}/api/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "auth", "register"] }
+      },
+      "response": []
+    },
+    {
+      "name": "login consumer → consumerToken",
+      "event": [
+        {
+          "listen": "test",
+          "script": { "type": "text/javascript", "exec": [
+            "const body = pm.response.json();",
+            "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+            "pm.collectionVariables.set(\"consumerToken\", body.data.token);",
+            "pm.collectionVariables.set(\"consumerId\", body.data.user.id);"
+          ] }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": { "mode": "raw", "raw": "{\n  \"username\": \"consumer_p3\",\n  \"password\": \"123456\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+      },
+      "response": []
+    },
+    {
+      "name": "owner 建数据集 (手工 schema) → datasetId",
+      "event": [
+        {
+          "listen": "test",
+          "script": { "type": "text/javascript", "exec": [
+            "const body = pm.response.json();",
+            "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+            "pm.collectionVariables.set(\"datasetId\", body.data.id);"
+          ] }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+        "body": { "mode": "raw", "raw": "{\n  \"name\": \"P3A Access Test\",\n  \"description\": \"phase3a access collection\",\n  \"category\": \"test\",\n  \"fieldsSchema\": [\n    { \"name\": \"name\", \"type\": \"string\", \"sensitive\": true },\n    { \"name\": \"age\", \"type\": \"integer\", \"sensitive\": false },\n    { \"name\": \"email\", \"type\": \"string\", \"sensitive\": true }\n  ]\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "{{baseUrl}}/api/datasets", "host": ["{{baseUrl}}"], "path": ["api", "datasets"] }
+      },
+      "response": []
+    },
+    {
+      "name": "owner 设定价",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test(\"业务码 200\", () => pm.expect(pm.response.json().code).to.eql(200));"
+        ] } }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+        "body": { "mode": "raw", "raw": "{\n  \"perAccessBase\": 10,\n  \"perField\": 5,\n  \"sensitiveFieldMultiplier\": 2\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "{{baseUrl}}/api/datasets/{{datasetId}}/pricing", "host": ["{{baseUrl}}"], "path": ["api", "datasets", "{{datasetId}}", "pricing"] }
+      },
+      "response": []
+    },
+    {
+      "name": "owner 建授权规则",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test(\"业务码 200\", () => pm.expect(pm.response.json().code).to.eql(200));"
+        ] } }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+        "body": { "mode": "raw", "raw": "{\n  \"datasetId\": \"{{datasetId}}\",\n  \"allowedRoles\": [\"Research Institution\"],\n  \"allowedPurposes\": [\"Research\"],\n  \"allowedFields\": [\"name\", \"age\", \"email\"],\n  \"validUntil\": \"2030-12-31\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "{{baseUrl}}/api/consent/rules", "host": ["{{baseUrl}}"], "path": ["api", "consent", "rules"] }
+      },
+      "response": []
+    },
+    {
+      "name": "consumer 提交申请 → PENDING_APPROVAL (r1Id)",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "const body = pm.response.json();",
+          "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+          "pm.test(\"状态 PENDING_APPROVAL\", () => pm.expect(body.data.status).to.eql(\"PENDING_APPROVAL\"));",
+          "pm.test(\"报价 cost=25 (Feign quote)\", () => pm.expect(Number(body.data.cost)).to.eql(25));",
+          "pm.collectionVariables.set(\"r1Id\", body.data.id);"
+        ] } }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{consumerToken}}" }],
+        "body": { "mode": "raw", "raw": "{\n  \"datasetId\": \"{{datasetId}}\",\n  \"consumerType\": \"Research Institution\",\n  \"purpose\": \"Research\",\n  \"requestedFields\": [\"name\", \"age\"]\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "{{baseUrl}}/api/access", "host": ["{{baseUrl}}"], "path": ["api", "access"] }
+      },
+      "response": []
+    },
+    {
+      "name": "consumer 重复提交 → 幂等 400",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test(\"幂等挡下 code=400\", () => pm.expect(pm.response.json().code).to.eql(400));"
+        ] } }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{consumerToken}}" }],
+        "body": { "mode": "raw", "raw": "{\n  \"datasetId\": \"{{datasetId}}\",\n  \"consumerType\": \"Research Institution\",\n  \"purpose\": \"Research\",\n  \"requestedFields\": [\"name\", \"age\"]\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "{{baseUrl}}/api/access", "host": ["{{baseUrl}}"], "path": ["api", "access"] }
+      },
+      "response": []
+    },
+    {
+      "name": "owner 查待审 (含 r1)",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "const body = pm.response.json();",
+          "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+          "pm.test(\"待审含 r1\", () => pm.expect(body.data.records.map(r=>r.id)).to.include(pm.collectionVariables.get(\"r1Id\")));"
+        ] } }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+        "url": { "raw": "{{baseUrl}}/api/access/pending", "host": ["{{baseUrl}}"], "path": ["api", "access", "pending"] }
+      },
+      "response": []
+    },
+    {
+      "name": "非 owner 批准 → 404",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test(\"越权当作不存在 404\", () => pm.expect(pm.response.json().code).to.eql(404));"
+        ] } }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Authorization", "value": "Bearer {{consumerToken}}" }],
+        "url": { "raw": "{{baseUrl}}/api/access/{{r1Id}}/approve", "host": ["{{baseUrl}}"], "path": ["api", "access", "{{r1Id}}", "approve"] }
+      },
+      "response": []
+    },
+    {
+      "name": "owner 批准 r1 → GRANTED",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "const body = pm.response.json();",
+          "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+          "pm.test(\"状态 GRANTED\", () => pm.expect(body.data.status).to.eql(\"GRANTED\"));",
+          "pm.test(\"approverId=owner\", () => pm.expect(body.data.approverId).to.eql(pm.collectionVariables.get(\"ownerId\")));"
+        ] } }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+        "url": { "raw": "{{baseUrl}}/api/access/{{r1Id}}/approve", "host": ["{{baseUrl}}"], "path": ["api", "access", "{{r1Id}}", "approve"] }
+      },
+      "response": []
+    },
+    {
+      "name": "consumer 提交第二笔 → r2Id",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "const body = pm.response.json();",
+          "pm.test(\"状态 PENDING_APPROVAL\", () => pm.expect(body.data.status).to.eql(\"PENDING_APPROVAL\"));",
+          "pm.collectionVariables.set(\"r2Id\", body.data.id);"
+        ] } }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{consumerToken}}" }],
+        "body": { "mode": "raw", "raw": "{\n  \"datasetId\": \"{{datasetId}}\",\n  \"consumerType\": \"Research Institution\",\n  \"purpose\": \"Research\",\n  \"requestedFields\": [\"email\"]\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "{{baseUrl}}/api/access", "host": ["{{baseUrl}}"], "path": ["api", "access"] }
+      },
+      "response": []
+    },
+    {
+      "name": "owner 驳回 r2 → REJECTED (带原因)",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "const body = pm.response.json();",
+          "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+          "pm.test(\"状态 REJECTED\", () => pm.expect(body.data.status).to.eql(\"REJECTED\"));",
+          "pm.test(\"原因已记录\", () => pm.expect(body.data.denialReasons[\"(owner)\"]).to.eql(\"not this quarter\"));"
+        ] } }
+      ],
+      "request": {
+        "method": "PUT",
+        "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+        "body": { "mode": "raw", "raw": "{\n  \"reason\": \"not this quarter\"\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "{{baseUrl}}/api/access/{{r2Id}}/reject", "host": ["{{baseUrl}}"], "path": ["api", "access", "{{r2Id}}", "reject"] }
+      },
+      "response": []
+    },
+    {
+      "name": "consumer 请求未授权字段 → 引擎直拒 REJECTED",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "const body = pm.response.json();",
+          "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+          "pm.test(\"引擎直拒 REJECTED\", () => pm.expect(body.data.status).to.eql(\"REJECTED\"));",
+          "pm.test(\"未经人工(approverId 空)\", () => pm.expect(body.data.approverId).to.be.oneOf([null, undefined, \"\"]));"
+        ] } }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{consumerToken}}" }],
+        "body": { "mode": "raw", "raw": "{\n  \"datasetId\": \"{{datasetId}}\",\n  \"consumerType\": \"Research Institution\",\n  \"purpose\": \"Research\",\n  \"requestedFields\": [\"ssn\"]\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "{{baseUrl}}/api/access", "host": ["{{baseUrl}}"], "path": ["api", "access"] }
+      },
+      "response": []
+    },
+    {
+      "name": "consumer 查我的申请 (>=3)",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "const body = pm.response.json();",
+          "pm.test(\"业务码 200\", () => pm.expect(body.code).to.eql(200));",
+          "pm.test(\"我的申请 >= 3\", () => pm.expect(body.data.total).to.be.at.least(3));"
+        ] } }
+      ],
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Authorization", "value": "Bearer {{consumerToken}}" }],
+        "url": { "raw": "{{baseUrl}}/api/access/mine", "host": ["{{baseUrl}}"], "path": ["api", "access", "mine"] }
+      },
+      "response": []
+    },
+    {
+      "name": "owner 申请自己的数据集 → 400",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test(\"自我申请被拒 400\", () => pm.expect(pm.response.json().code).to.eql(400));"
+        ] } }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+        "body": { "mode": "raw", "raw": "{\n  \"datasetId\": \"{{datasetId}}\",\n  \"consumerType\": \"Research Institution\",\n  \"purpose\": \"Research\",\n  \"requestedFields\": [\"name\"]\n}", "options": { "raw": { "language": "json" } } },
+        "url": { "raw": "{{baseUrl}}/api/access", "host": ["{{baseUrl}}"], "path": ["api", "access"] }
+      },
+      "response": []
+    },
+    {
+      "name": "cleanup: owner 删除测试数据集",
+      "event": [
+        { "listen": "test", "script": { "type": "text/javascript", "exec": [
+          "pm.test(\"清理成功\", () => pm.expect(pm.response.json().code).to.eql(200));"
+        ] } }
+      ],
+      "request": {
+        "method": "DELETE",
+        "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+        "url": { "raw": "{{baseUrl}}/api/datasets/{{datasetId}}", "host": ["{{baseUrl}}"], "path": ["api", "datasets", "{{datasetId}}"] }
+      },
+      "response": []
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:8080" },
+    { "key": "ownerToken", "value": "" },
+    { "key": "consumerToken", "value": "" },
+    { "key": "ownerId", "value": "" },
+    { "key": "consumerId", "value": "" },
+    { "key": "datasetId", "value": "" },
+    { "key": "r1Id", "value": "" },
+    { "key": "r2Id", "value": "" }
+  ]
+}

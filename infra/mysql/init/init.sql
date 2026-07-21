@@ -120,16 +120,18 @@ CREATE TABLE IF NOT EXISTS access_requests (
     allowed_fields   JSON,
     denied_fields    JSON,
     denial_reasons   JSON,                     -- Map<String,String>
-    status           VARCHAR(32),              -- pending/approved/rejected/partial
+    status           VARCHAR(32),              -- Phase 3a 状态机:PENDING_APPROVAL/GRANTED/REJECTED(3c 增 PENDING_PAYMENT/CANCELLED)
     cost             DECIMAL(18,4),
     requested_at     DATETIME,
     responded_at     DATETIME,
     -- [NEW] Phase 3 审批状态机
-    approver_id      VARCHAR(64),
+    owner_id         VARCHAR(64),              -- 建单时快照的数据集 owner(供 owner 查"待我审批")
+    approver_id      VARCHAR(64),              -- 实际点批准/驳回的人(3a 即数据集 owner)
     approved_at      DATETIME,
     PRIMARY KEY (id),
     KEY idx_access_requester (requester_id),
     KEY idx_access_dataset (dataset_id),
+    KEY idx_access_owner (owner_id),
     KEY idx_access_status (status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

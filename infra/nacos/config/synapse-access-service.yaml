@@ -1,0 +1,38 @@
+# =====================================================================
+# Nacos 配置 · Data ID: synapse-access-service.yaml · Group: SYNAPSE_GROUP
+# access-service 专属:数据源(synapse_access)+ MyBatis-Plus + Redis + Feign。
+# 服务跑在宿主机,故连 127.0.0.1:3307(MySQL)/6379(Redis)。
+# 形如 双下划线包裹的占位符 由 import-config.ps1 从 infra/.env 替换。
+# =====================================================================
+spring:
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://127.0.0.1:3307/synapse_access?useSSL=false&serverTimezone=UTC&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
+    username: root
+    password: __MYSQL_ROOT_PASSWORD__
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      password: __REDIS_PASSWORD__
+      timeout: 3000ms
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: assign_uuid
+
+# Feign:跨服务调用超时(编排链路串了 3 个下游,给足余量但不无限等)
+feign:
+  client:
+    config:
+      default:
+        connect-timeout: 3000
+        read-timeout: 5000
+
+# 下单幂等锁参数(自定义前缀 synapse.access,由 @Value 注入)
+synapse:
+  access:
+    lock-ttl-seconds: 10   # 同一 requester+dataset 提交的 Redis 锁持有时长
