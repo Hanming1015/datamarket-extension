@@ -1,0 +1,24 @@
+server:
+  port: 8088
+
+spring:
+  application:
+    name: synapse-notification-service
+  cloud:
+    nacos:
+      server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+      username: ${NACOS_USERNAME:nacos}
+      password: ${NACOS_PASSWORD:nacos}
+      discovery:
+        group: SYNAPSE_GROUP
+      config:
+        group: SYNAPSE_GROUP
+        file-extension: yaml
+  config:
+    import:
+      - optional:nacos:synapse-common.yaml?group=SYNAPSE_GROUP
+      - optional:nacos:synapse-notification-service.yaml?group=SYNAPSE_GROUP
+
+logging:
+  level:
+    com.synapse.notification: info
