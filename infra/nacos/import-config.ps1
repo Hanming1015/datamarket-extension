@@ -61,4 +61,17 @@ Get-ChildItem -Path $configDir -Filter '*.yaml' | ForEach-Object {
     }
 }
 
+# ④ 发布 Sentinel 规则文件(*.json,type=json)。纯规则不含 __VAR__,直接原样推送。
+Get-ChildItem -Path $configDir -Filter '*.json' | ForEach-Object {
+    $dataId  = $_.Name
+    $content = [System.IO.File]::ReadAllText($_.FullName, [System.Text.Encoding]::UTF8)
+    $resp = Invoke-RestMethod -Method Post -Uri "$nacosBase/v1/cs/configs?accessToken=$token" `
+        -Body @{ dataId = $dataId; group = $group; type = 'json'; content = $content }
+    if ("$resp" -eq 'true') {
+        Write-Host "  ✔ 已发布 $dataId (group=$group, json)" -ForegroundColor Green
+    } else {
+        Write-Warning "  发布 $dataId 返回:$resp"
+    }
+}
+
 Write-Host '全部配置推送完成。' -ForegroundColor Cyan

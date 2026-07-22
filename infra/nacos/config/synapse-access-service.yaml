@@ -10,6 +10,33 @@ spring:
     url: jdbc:mysql://127.0.0.1:3307/synapse_access?useSSL=false&serverTimezone=UTC&characterEncoding=UTF-8&allowPublicKeyRetrieval=true
     username: root
     password: __MYSQL_ROOT_PASSWORD__
+  cloud:
+    sentinel:
+      # 上报到已跑的 Sentinel Dashboard(仅用于观测;规则不靠它,见下)
+      transport:
+        dashboard: 127.0.0.1:8858
+      eager: true                 # 启动即注册,不等首个请求才懒加载
+      # 规则数据源 = Nacos:规则写进 Nacos,启动拉取 + 改配置实时推,持久化且可版本化。
+      # 多副本(4b)时每个实例都从同一 Nacos dataId 拿到同一份规则。
+      datasource:
+        flow-rules:
+          nacos:
+            server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+            username: ${NACOS_USERNAME:nacos}
+            password: ${NACOS_PASSWORD:nacos}
+            group-id: SYNAPSE_GROUP
+            data-id: synapse-access-service-flow-rules.json
+            data-type: json
+            rule-type: flow
+        degrade-rules:
+          nacos:
+            server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+            username: ${NACOS_USERNAME:nacos}
+            password: ${NACOS_PASSWORD:nacos}
+            group-id: SYNAPSE_GROUP
+            data-id: synapse-access-service-degrade-rules.json
+            data-type: json
+            rule-type: degrade
   data:
     redis:
       host: 127.0.0.1
@@ -38,6 +65,9 @@ mybatis-plus:
 
 # Feign:跨服务调用超时(编排链路串了 3 个下游,给足余量但不无限等)
 feign:
+  # 用 Sentinel 包裹 Feign:下游熔断/异常时走 @FeignClient 的 fallback,优雅降级不雪崩
+  sentinel:
+    enabled: true
   client:
     config:
       default:

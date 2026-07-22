@@ -13,8 +13,10 @@ public enum ResultCode {
     UNAUTHORIZED(401, "unauthorized"),
     FORBIDDEN(403, "forbidden"),
     NOT_FOUND(404, "not found"),
+    TOO_MANY_REQUESTS(429, "too many requests, please retry later"),
     BUSINESS_ERROR(4000, "business error"),
-    INTERNAL_ERROR(500, "internal server error");
+    INTERNAL_ERROR(500, "internal server error"),
+    SERVICE_UNAVAILABLE(503, "downstream service temporarily unavailable");
 
     private final int code;
     private final String message;

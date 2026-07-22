@@ -69,6 +69,17 @@
             <artifactId>spring-cloud-starter-loadbalancer</artifactId>
         </dependency>
 
+        <!-- Sentinel(Phase 4a):热点端点 QPS 流控 + Feign 熔断降级(feign.sentinel.enabled)-->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
+        </dependency>
+        <!-- 规则数据源:从 Nacos 拉 flow/degrade 规则,热更新且持久化(不靠 dashboard 内存)-->
+        <dependency>
+            <groupId>com.alibaba.csp</groupId>
+            <artifactId>sentinel-datasource-nacos</artifactId>
+        </dependency>
+
         <!-- 公共模块:Result / 异常 / 常量 -->
         <dependency>
             <groupId>com.synapse</groupId>

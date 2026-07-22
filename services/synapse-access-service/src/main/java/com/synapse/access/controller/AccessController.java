@@ -1,5 +1,6 @@
 package com.synapse.access.controller;
 
+import com.alibaba.csp.sentinel.annotation.SentinelResource;
 import com.synapse.access.dto.CreateAccessRequest;
 import com.synapse.access.dto.RejectRequest;
 import com.synapse.access.service.AccessService;
@@ -23,8 +24,13 @@ public class AccessController {
     @Autowired
     private AccessService accessService;
 
-    /** 消费者提交访问申请(触发 Feign 编排:数据集快照 → 预筛 → 报价)。 */
+    /**
+     * 消费者提交访问申请(触发 Feign 编排:数据集快照 → 预筛 → 报价)。
+     * Sentinel 资源 access:create 受 Nacos 下发的 QPS 流控保护;超阈值走 createBlocked 优雅降级。
+     */
     @PostMapping
+    @SentinelResource(value = "access:create",
+            blockHandler = "createBlocked", blockHandlerClass = AccessBlockHandler.class)
     public Result<AccessRequestVO> create(
             @RequestHeader(SecurityConstants.USER_ID_HEADER) String userId,
             @Valid @RequestBody CreateAccessRequest req) {

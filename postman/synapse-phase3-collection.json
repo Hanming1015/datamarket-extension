@@ -1,0 +1,380 @@
+{
+  "info": {
+    "name": "Synapse Phase 3 (访问→支付→扇出)",
+    "description": "Phase 3 全链路手测:审批 → PENDING_PAYMENT → 支付(Mock 收银台 webhook)→ payment.succeeded 扇出到 access/billing/notification。\n\n用法:\n1. 先确认 9 服务在跑(网关 8080、payment 8085)。\n2. 直接用 Collection Runner 从上往下跑一遍;或手动按文件夹顺序逐个 Send。\n3. token / datasetId / r1id / r2id / sessionId / notifId 都由每个请求的 Tests 脚本自动写入 collection 变量,后续请求直接引用。\n4. 支付是异步扇出:点完 webhook 后,billing/mine、notifications/mine 可能要等 1~2 秒再 Send 才能看到结果。\n\n注意:webhook 与 /internal/** 不走网关,直连 payment-service(8085)。",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://127.0.0.1:8080", "type": "string" },
+    { "key": "paySvc", "value": "http://127.0.0.1:8085", "type": "string" },
+    { "key": "ownerToken", "value": "", "type": "string" },
+    { "key": "consumerToken", "value": "", "type": "string" },
+    { "key": "consumerId", "value": "", "type": "string" },
+    { "key": "datasetId", "value": "", "type": "string" },
+    { "key": "r1id", "value": "", "type": "string" },
+    { "key": "r2id", "value": "", "type": "string" },
+    { "key": "sessionId", "value": "", "type": "string" },
+    { "key": "notifId", "value": "", "type": "string" }
+  ],
+  "item": [
+    {
+      "name": "00 账号",
+      "item": [
+        {
+          "name": "登录 owner (test)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "pm.test('登录成功', () => pm.expect(b.code).to.eql(200));",
+                  "if (b.data && b.data.token) pm.collectionVariables.set('ownerToken', b.data.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"test\",\n  \"password\": \"123456\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        },
+        {
+          "name": "注册 consumer_c2 (可能已存在,失败可忽略)",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"consumer_c2\",\n  \"password\": \"123456\",\n  \"name\": \"Consumer C2\",\n  \"email\": \"cc2@example.com\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/auth/register", "host": ["{{baseUrl}}"], "path": ["api", "auth", "register"] }
+          }
+        },
+        {
+          "name": "登录 consumer_c2",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "pm.test('登录成功', () => pm.expect(b.code).to.eql(200));",
+                  "if (b.data) {",
+                  "  pm.collectionVariables.set('consumerToken', b.data.token);",
+                  "  if (b.data.user) pm.collectionVariables.set('consumerId', b.data.user.id);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": { "mode": "raw", "raw": "{\n  \"username\": \"consumer_c2\",\n  \"password\": \"123456\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/auth/login", "host": ["{{baseUrl}}"], "path": ["api", "auth", "login"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 owner 造数据",
+      "item": [
+        {
+          "name": "创建数据集",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "pm.test('创建成功', () => pm.expect(b.code).to.eql(200));",
+                  "if (b.data) pm.collectionVariables.set('datasetId', b.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"name\": \"Postman P3 Dataset\",\n  \"description\": \"phase3 手测\",\n  \"category\": \"test\",\n  \"fieldsSchema\": [\n    { \"name\": \"name\", \"type\": \"string\", \"sensitive\": true },\n    { \"name\": \"age\", \"type\": \"integer\", \"sensitive\": false }\n  ]\n}" },
+            "url": { "raw": "{{baseUrl}}/api/datasets", "host": ["{{baseUrl}}"], "path": ["api", "datasets"] }
+          }
+        },
+        {
+          "name": "设置定价",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"perAccessBase\": 10,\n  \"perField\": 5,\n  \"sensitiveFieldMultiplier\": 2\n}" },
+            "url": { "raw": "{{baseUrl}}/api/datasets/{{datasetId}}/pricing", "host": ["{{baseUrl}}"], "path": ["api", "datasets", "{{datasetId}}", "pricing"] }
+          }
+        },
+        {
+          "name": "配置授权规则 (consent)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"datasetId\": \"{{datasetId}}\",\n  \"allowedRoles\": [\"Research Institution\"],\n  \"allowedPurposes\": [\"Research\"],\n  \"allowedFields\": [\"name\", \"age\"],\n  \"validUntil\": \"2030-12-31\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/consent/rules", "host": ["{{baseUrl}}"], "path": ["api", "consent", "rules"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 申请 + 审批",
+      "item": [
+        {
+          "name": "consumer 提交访问申请 R1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "pm.test('申请成功', () => pm.expect(b.code).to.eql(200));",
+                  "if (b.data) pm.collectionVariables.set('r1id', b.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{consumerToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"datasetId\": \"{{datasetId}}\",\n  \"consumerType\": \"Research Institution\",\n  \"purpose\": \"Research\",\n  \"requestedFields\": [\"name\", \"age\"]\n}" },
+            "url": { "raw": "{{baseUrl}}/api/access", "host": ["{{baseUrl}}"], "path": ["api", "access"] }
+          }
+        },
+        {
+          "name": "owner 批准 R1 -> PENDING_PAYMENT",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "pm.test('批准成功', () => pm.expect(b.code).to.eql(200));",
+                  "pm.test('进入待支付', () => pm.expect(String(b.data.status)).to.match(/PENDING_PAYMENT/));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": { "raw": "{{baseUrl}}/api/access/{{r1id}}/approve", "host": ["{{baseUrl}}"], "path": ["api", "access", "{{r1id}}", "approve"] }
+          }
+        },
+        {
+          "name": "查我的申请 (确认状态)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{consumerToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/access/mine", "host": ["{{baseUrl}}"], "path": ["api", "access", "mine"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 支付闭环",
+      "item": [
+        {
+          "name": "consumer 发起支付 -> 收银台",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "pm.test('创建订单成功', () => pm.expect(b.code).to.eql(200));",
+                  "if (b.data) {",
+                  "  pm.collectionVariables.set('sessionId', b.data.sessionId);",
+                  "  console.log('收银台 URL:', b.data.checkoutUrl);",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{consumerToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"accessRequestId\": \"{{r1id}}\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/payments", "host": ["{{baseUrl}}"], "path": ["api", "payments"] }
+          }
+        },
+        {
+          "name": "模拟收银台回调 webhook (直连 8085,不走网关)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": ["pm.test('webhook 200', () => pm.response.to.have.status(200));"]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{paySvc}}/webhooks/payment/mock?sessionId={{sessionId}}",
+              "host": ["{{paySvc}}"],
+              "path": ["webhooks", "payment", "mock"],
+              "query": [{ "key": "sessionId", "value": "{{sessionId}}" }]
+            }
+          }
+        },
+        {
+          "name": "我的支付订单 (应 PAID)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{consumerToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/payments/mine", "host": ["{{baseUrl}}"], "path": ["api", "payments", "mine"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 扇出结果 (支付后等 1~2 秒)",
+      "item": [
+        {
+          "name": "access/mine (R1 应 GRANTED)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{consumerToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/access/mine", "host": ["{{baseUrl}}"], "path": ["api", "access", "mine"] }
+          }
+        },
+        {
+          "name": "billing/mine (账单应 PAID)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{consumerToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/billing/mine", "host": ["{{baseUrl}}"], "path": ["api", "billing", "mine"] }
+          }
+        },
+        {
+          "name": "notifications/mine (批准+支付通知)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "const recs = (b.data && b.data.records) || [];",
+                  "const first = recs[0];",
+                  "if (first) pm.collectionVariables.set('notifId', first.id);",
+                  "pm.test('有通知', () => pm.expect(recs.length).to.be.above(0));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{consumerToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/notifications/mine", "host": ["{{baseUrl}}"], "path": ["api", "notifications", "mine"] }
+          }
+        },
+        {
+          "name": "标记通知已读",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{consumerToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": { "raw": "{{baseUrl}}/api/notifications/{{notifId}}/read", "host": ["{{baseUrl}}"], "path": ["api", "notifications", "{{notifId}}", "read"] }
+          }
+        },
+        {
+          "name": "audit/mine (审计流水)",
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer {{consumerToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/audit/mine", "host": ["{{baseUrl}}"], "path": ["api", "audit", "mine"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 驳回分支",
+      "item": [
+        {
+          "name": "consumer 提交申请 R2",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const b = pm.response.json();",
+                  "if (b.data) pm.collectionVariables.set('r2id', b.data.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{consumerToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"datasetId\": \"{{datasetId}}\",\n  \"consumerType\": \"Research Institution\",\n  \"purpose\": \"Research\",\n  \"requestedFields\": [\"name\"]\n}" },
+            "url": { "raw": "{{baseUrl}}/api/access", "host": ["{{baseUrl}}"], "path": ["api", "access"] }
+          }
+        },
+        {
+          "name": "owner 驳回 R2 -> 驳回通知",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Authorization", "value": "Bearer {{ownerToken}}" }
+            ],
+            "body": { "mode": "raw", "raw": "{\n  \"reason\": \"字段不符合授权范围\"\n}" },
+            "url": { "raw": "{{baseUrl}}/api/access/{{r2id}}/reject", "host": ["{{baseUrl}}"], "path": ["api", "access", "{{r2id}}", "reject"] }
+          }
+        }
+      ]
+    },
+    {
+      "name": "99 清理 (删测试数据集)",
+      "item": [
+        {
+          "name": "删除数据集",
+          "request": {
+            "method": "DELETE",
+            "header": [{ "key": "Authorization", "value": "Bearer {{ownerToken}}" }],
+            "url": { "raw": "{{baseUrl}}/api/datasets/{{datasetId}}", "host": ["{{baseUrl}}"], "path": ["api", "datasets", "{{datasetId}}"] }
+          }
+        }
+      ]
+    }
+  ]
+}

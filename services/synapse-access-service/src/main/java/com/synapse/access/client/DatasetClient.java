@@ -15,7 +15,8 @@ import org.springframework.web.bind.annotation.GetMapping;
  * ① 取数据集详情(datasetName + ownerId 快照,并校验存在);② 按授权字段报价。
  * 均为内部调用,不读身份头。
  */
-@FeignClient(name = "synapse-dataset-service", path = "/api/datasets")
+@FeignClient(name = "synapse-dataset-service", path = "/api/datasets",
+        fallback = DatasetClientFallback.class)
 public interface DatasetClient {
 
     /** 数据集详情。 */
