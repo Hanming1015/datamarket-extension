@@ -11,7 +11,10 @@ import com.synapse.common.api.Result;
 import com.synapse.common.constant.SecurityConstants;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.Map;
 
 /**
  * 访问申请端点,前缀 {@code /api/access}(网关校验 JWT 后路由至此)。
@@ -23,6 +26,19 @@ public class AccessController {
 
     @Autowired
     private AccessService accessService;
+
+    /** 本实例监听端口,用于在多副本下肉眼观察负载均衡把请求打到了哪个实例(Phase 4b)。 */
+    @Value("${server.port}")
+    private String instancePort;
+
+    /**
+     * 探针:返回处理本请求的 access 实例端口。
+     * 多副本时经网关反复调用,端口交替即证明 LoadBalancer 轮询生效。
+     */
+    @GetMapping("/whoami")
+    public Result<Map<String, String>> whoami() {
+        return Result.ok(Map.of("service", "synapse-access-service", "port", instancePort));
+    }
 
     /**
      * 消费者提交访问申请(触发 Feign 编排:数据集快照 → 预筛 → 报价)。

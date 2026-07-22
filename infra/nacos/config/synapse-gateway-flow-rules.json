@@ -1,0 +1,11 @@
+[
+  {
+    "resource": "synapse-access-service",
+    "resourceMode": 0,
+    "grade": 1,
+    "count": 10,
+    "intervalSec": 1,
+    "controlBehavior": 0,
+    "burst": 0
+  }
+]

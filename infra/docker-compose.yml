@@ -48,20 +48,124 @@ services:
       retries: 10
     restart: unless-stopped
 
-  # ---- 缓存 / 分布式锁 / 幂等 / 限流计数 ----
-  redis:
+  # ---- 缓存 / 分布式锁 / 幂等(Phase 4c:Redis Sentinel 高可用,1 主 2 从 3 哨兵)----
+  # 关键:服务跑在宿主机、Redis 在容器,所有节点统一用 ${REDIS_ANNOUNCE_IP}:<宿主端口> 对外通告,
+  #       这样哨兵返回给宿主客户端的主库地址在宿主机可解析可达(容器侧走 hairpin 也可达)。
+  redis-master:
     image: redis:7-alpine
-    container_name: synapse-redis
-    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD}", "--appendonly", "yes"]
+    container_name: synapse-redis-master
+    command: >
+      redis-server --requirepass ${REDIS_PASSWORD} --masterauth ${REDIS_PASSWORD}
+      --appendonly yes
+      --replica-announce-ip ${REDIS_ANNOUNCE_IP} --replica-announce-port 6379
     ports:
       - "6379:6379"
     volumes:
-      - redis-data:/data
+      - redis-master-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
       interval: 10s
       timeout: 5s
       retries: 10
+    restart: unless-stopped
+
+  redis-replica-1:
+    image: redis:7-alpine
+    container_name: synapse-redis-replica-1
+    command: >
+      redis-server --requirepass ${REDIS_PASSWORD} --masterauth ${REDIS_PASSWORD}
+      --replicaof ${REDIS_ANNOUNCE_IP} 6379 --appendonly yes
+      --replica-announce-ip ${REDIS_ANNOUNCE_IP} --replica-announce-port 6380
+    ports:
+      - "6380:6379"
+    depends_on:
+      - redis-master
+    restart: unless-stopped
+
+  redis-replica-2:
+    image: redis:7-alpine
+    container_name: synapse-redis-replica-2
+    command: >
+      redis-server --requirepass ${REDIS_PASSWORD} --masterauth ${REDIS_PASSWORD}
+      --replicaof ${REDIS_ANNOUNCE_IP} 6379 --appendonly yes
+      --replica-announce-ip ${REDIS_ANNOUNCE_IP} --replica-announce-port 6381
+    ports:
+      - "6381:6379"
+    depends_on:
+      - redis-master
+    restart: unless-stopped
+
+  # 3 哨兵:监控 mymaster,quorum=2。配置写到 /tmp(哨兵运行时会 rewrite 该文件,故需可写)。
+  redis-sentinel-1:
+    image: redis:7-alpine
+    container_name: synapse-redis-sentinel-1
+    command:
+      - sh
+      - -c
+      - |
+        { echo 'port 26379'
+          echo 'sentinel resolve-hostnames yes'
+          echo 'sentinel announce-hostnames yes'
+          echo 'sentinel monitor mymaster ${REDIS_ANNOUNCE_IP} 6379 2'
+          echo 'sentinel auth-pass mymaster ${REDIS_PASSWORD}'
+          echo 'sentinel down-after-milliseconds mymaster 5000'
+          echo 'sentinel failover-timeout mymaster 10000'
+          echo 'sentinel announce-ip ${REDIS_ANNOUNCE_IP}'
+          echo 'sentinel announce-port 26379'
+        } > /tmp/sentinel.conf
+        exec redis-sentinel /tmp/sentinel.conf
+    ports:
+      - "26379:26379"
+    depends_on:
+      - redis-master
+    restart: unless-stopped
+
+  redis-sentinel-2:
+    image: redis:7-alpine
+    container_name: synapse-redis-sentinel-2
+    command:
+      - sh
+      - -c
+      - |
+        { echo 'port 26380'
+          echo 'sentinel resolve-hostnames yes'
+          echo 'sentinel announce-hostnames yes'
+          echo 'sentinel monitor mymaster ${REDIS_ANNOUNCE_IP} 6379 2'
+          echo 'sentinel auth-pass mymaster ${REDIS_PASSWORD}'
+          echo 'sentinel down-after-milliseconds mymaster 5000'
+          echo 'sentinel failover-timeout mymaster 10000'
+          echo 'sentinel announce-ip ${REDIS_ANNOUNCE_IP}'
+          echo 'sentinel announce-port 26380'
+        } > /tmp/sentinel.conf
+        exec redis-sentinel /tmp/sentinel.conf
+    ports:
+      - "26380:26380"
+    depends_on:
+      - redis-master
+    restart: unless-stopped
+
+  redis-sentinel-3:
+    image: redis:7-alpine
+    container_name: synapse-redis-sentinel-3
+    command:
+      - sh
+      - -c
+      - |
+        { echo 'port 26381'
+          echo 'sentinel resolve-hostnames yes'
+          echo 'sentinel announce-hostnames yes'
+          echo 'sentinel monitor mymaster ${REDIS_ANNOUNCE_IP} 6379 2'
+          echo 'sentinel auth-pass mymaster ${REDIS_PASSWORD}'
+          echo 'sentinel down-after-milliseconds mymaster 5000'
+          echo 'sentinel failover-timeout mymaster 10000'
+          echo 'sentinel announce-ip ${REDIS_ANNOUNCE_IP}'
+          echo 'sentinel announce-port 26381'
+        } > /tmp/sentinel.conf
+        exec redis-sentinel /tmp/sentinel.conf
+    ports:
+      - "26381:26381"
+    depends_on:
+      - redis-master
     restart: unless-stopped
 
   # ---- 消息队列(异步解耦 / DLQ / 事件扇出)----
@@ -118,6 +222,6 @@ services:
 volumes:
   nacos-data:
   mysql-data:
-  redis-data:
+  redis-master-data:
   rabbitmq-data:
   minio-data:

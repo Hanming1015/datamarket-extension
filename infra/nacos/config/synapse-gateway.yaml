@@ -39,6 +39,28 @@ spring:
           uri: lb://synapse-notification-service
           predicates:
             - Path=/api/notifications/**
+    # Sentinel 网关限流(Phase 4a-2):按路由维度做边缘 QPS 流控,规则来自 Nacos。
+    sentinel:
+      transport:
+        dashboard: 127.0.0.1:8858   # 仅观测;规则走下面的 Nacos 数据源
+      eager: true
+      # 被限流时的统一返回体(HTTP 429 + Result 信封;message 特意标 gateway 以区分服务级流控)
+      scg:
+        fallback:
+          mode: response
+          response-status: 429
+          content-type: application/json;charset=UTF-8
+          response-body: '{"code":429,"message":"gateway throttled, please retry later","data":null}'
+      datasource:
+        gw-flow:
+          nacos:
+            server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+            username: ${NACOS_USERNAME:nacos}
+            password: ${NACOS_PASSWORD:nacos}
+            group-id: SYNAPSE_GROUP
+            data-id: synapse-gateway-flow-rules.json
+            data-type: json
+            rule-type: gw-flow
 
 # 网关鉴权白名单:命中这些路径的请求跳过 JWT 校验(登录/注册本就没 token)。
 synapse:

@@ -35,6 +35,22 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-loadbalancer</artifactId>
         </dependency>
+
+        <!-- Sentinel(Phase 4a-2):网关层按路由限流,边缘第一道闸 -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-sentinel</artifactId>
+        </dependency>
+        <!-- Sentinel 的 Spring Cloud Gateway 适配器:自动装 SentinelGatewayFilter + 阻塞处理器 -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-alibaba-sentinel-gateway</artifactId>
+        </dependency>
+        <!-- 规则数据源:从 Nacos 拉网关流控规则(gw-flow),热更新且持久化 -->
+        <dependency>
+            <groupId>com.alibaba.csp</groupId>
+            <artifactId>sentinel-datasource-nacos</artifactId>
+        </dependency>
         <!-- 公共模块:JwtUtil / SecurityConstants / Result(WebFlux 下 GlobalExceptionHandler 会被守卫跳过)-->
         <dependency>
             <groupId>com.synapse</groupId>
