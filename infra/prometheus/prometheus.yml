@@ -1,0 +1,37 @@
+# Synapse · Prometheus 抓取配置(Phase 5 可观测性)
+# 业务服务跑在宿主机(8080-8088),Prometheus 在容器里,
+# 通过 host.docker.internal 反向访问宿主(Docker Desktop 容器->宿主方向可达)。
+# 每个服务的 /actuator/prometheus 已由 Micrometer 暴露,并自带 application 标签。
+global:
+  scrape_interval: 5s          # 本地演示,抓密一点便于出图
+  evaluation_interval: 15s
+  external_labels:
+    cluster: synapse-local
+
+scrape_configs:
+  - job_name: synapse-services
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+        labels: { service: synapse-gateway }
+      - targets: ["host.docker.internal:8081"]
+        labels: { service: synapse-auth-service }
+      - targets: ["host.docker.internal:8082"]
+        labels: { service: synapse-consent-service }
+      - targets: ["host.docker.internal:8083"]
+        labels: { service: synapse-dataset-service }
+      - targets: ["host.docker.internal:8084"]
+        labels: { service: synapse-access-service }
+      - targets: ["host.docker.internal:8085"]
+        labels: { service: synapse-payment-service }
+      - targets: ["host.docker.internal:8086"]
+        labels: { service: synapse-billing-service }
+      - targets: ["host.docker.internal:8087"]
+        labels: { service: synapse-audit-service }
+      - targets: ["host.docker.internal:8088"]
+        labels: { service: synapse-notification-service }
+
+  # Prometheus 自身
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

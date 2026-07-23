@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
-import api from '../services/api';
+import { auditApi } from '../services/api';
 import { FileCheck, Shield, Database, Send, CheckCircle, XCircle, Filter, Calendar, User } from 'lucide-react';
 import { type AuditLog } from '../types';
 
-export default function AuditLog({ user }: { user: any }) {
+export default function AuditLog(_props: { user: any }) {
   const [selectedAction, setSelectedAction] = useState<string>('all');
   const [searchUser, setSearchUser] = useState('');
   const [dateFilter, setDateFilter] = useState('all');
   const [logs, setLogs] = useState<AuditLog[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [, setIsLoading] = useState(true);
 
   useEffect(() => {
     fetchLogs();
@@ -17,16 +17,10 @@ export default function AuditLog({ user }: { user: any }) {
   const fetchLogs = async () => {
     setIsLoading(true);
     try {
-      const params: Record<string, string> = {};
-      if (selectedAction !== 'all') {
-        params.action = selectedAction;
-      }
-      if (searchUser.trim() !== '') {
-        params.userId = searchUser;
-      }
-
-      const response = await api.get('/api/audit/logs', { params });
-      setLogs(response.data);
+      // Audit is scoped to the caller via X-User-Id; action/user filters are applied
+      // on the frontend below. Payload is paginated PageResult{records,...}.
+      const response = await auditApi.mine({ size: 200 });
+      setLogs(response.data?.records || []);
     } catch (error) {
       console.error('Error fetching logs:', error);
     } finally {

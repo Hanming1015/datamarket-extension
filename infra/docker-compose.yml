@@ -219,9 +219,54 @@ services:
       - "8858:8858"
     restart: unless-stopped
 
+  # ---- 指标采集(Phase 5):抓取 9 个宿主服务的 /actuator/prometheus ----
+  # 服务在宿主机,Prometheus 在容器,靠 host.docker.internal 反向访问宿主。
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    container_name: synapse-prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=7d"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"    # Linux 兼容;Docker Desktop 本就内置
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    restart: unless-stopped
+
+  # ---- 指标可视化(Phase 5):自动装配 Prometheus 数据源 + Synapse 总览仪表盘 ----
+  grafana:
+    image: grafana/grafana:11.1.0
+    container_name: synapse-grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  # ---- 链路追踪(Phase 5):接收各服务上报的 span,可视化跨服务调用链 ----
+  zipkin:
+    image: openzipkin/zipkin:3.4
+    container_name: synapse-zipkin
+    ports:
+      - "9411:9411"
+    restart: unless-stopped
+
 volumes:
   nacos-data:
   mysql-data:
   redis-master-data:
   rabbitmq-data:
   minio-data:
+  prometheus-data:
+  grafana-data:

@@ -2,7 +2,7 @@
 
 > A fine-grained, consent-driven **data marketplace** that connects **Data Owners** (e.g. healthcare providers) with **Data Consumers** (e.g. research institutions), featuring a dynamic pricing engine, field-level consent control, real payments, and an event-driven microservice backend.
 
-> **⚠️ Status: Active migration.** This project is being upgraded from a Spring Boot monolith into a **Spring Cloud Alibaba microservice cluster**. The legacy monolith under `/backend` is kept as a working reference while services are extracted incrementally. See **[docs/ENTERPRISE_UPGRADE_PLAN.md](./docs/ENTERPRISE_UPGRADE_PLAN.md)** for the full architecture blueprint, phased roadmap, and résumé notes.
+> **✅ Status: Migration complete (Phases 0–5).** This project was upgraded from a Spring Boot monolith into a **Spring Cloud Alibaba microservice cluster** — 8 domain services + gateway, RabbitMQ event fan-out, Stripe payments, Redis Sentinel HA, Sentinel flow control & circuit breaking, and full observability (Prometheus / Grafana / Zipkin). The legacy monolith under `/backend` is kept as a reference. See **[docs/ENTERPRISE_UPGRADE_PLAN.md](./docs/ENTERPRISE_UPGRADE_PLAN.md)** for the architecture blueprint, phased roadmap, and résumé notes; per-phase write-ups in **[docs/](./docs/)**.
 
 ---
 
@@ -49,10 +49,16 @@ The platform is being re-architected around **domain-aligned microservices** wit
                                  (async)     (async)   (approval/payment)
 
    Cross-cutting infrastructure:
-     Nacos (service registry + config center)  ·  Redis (cache / lock / rate-limit)
+     Nacos (service registry + config center)  ·  Redis Sentinel HA (cache / lock / rate-limit)
      Sentinel (flow control & circuit breaking) ·  OpenFeign + LoadBalancer (RPC)
+     Observability: Prometheus + Grafana (metrics) · Zipkin (distributed tracing)
      Docker Compose (orchestration)
 ```
+
+> **Observability (Phase 5):** every service exposes `/actuator/prometheus` (Micrometer). Prometheus
+> scrapes all 9 services; Grafana renders QPS / P99 / error-rate / JVM dashboards; Micrometer Tracing
+> propagates a `traceId` across the gateway routing hop and every Feign hop, visualized in Zipkin —
+> e.g. an access request fans out as `gateway → access-service → dataset-service → consent-service`.
 
 ### 3.2 Business microservices
 
@@ -79,6 +85,8 @@ The platform is being re-architected around **domain-aligned microservices** wit
 | **RabbitMQ** | Asynchronous events (billing, audit, notifications, payment callbacks) with Dead Letter Queue |
 | **MinIO** | S3-compatible object storage for uploaded dataset files |
 | **OpenFeign + LoadBalancer** | Declarative inter-service calls with client-side load balancing |
+| **Prometheus + Grafana** | Metrics scraping (`/actuator/prometheus`) + dashboards (QPS, P99, error rate, JVM) |
+| **Zipkin + Micrometer Tracing** | Distributed tracing: traceId propagated across gateway routing & Feign hops |
 | **Docker Compose** | One-command local orchestration of the full cluster |
 
 ---
@@ -132,8 +140,8 @@ The platform is being re-architected around **domain-aligned microservices** wit
 
 | # | NFR | Target | Mechanism | Headline |
 |---|---|---|---|---|
-| NFR-1 | **Latency** | Browse / request APIs **P99 < 200ms** | Redis cache for hot datasets & pricing | "Cache hit-rate X%, P99 cut from Y→Z" |
-| NFR-2 | **Throughput / peak shaving** | Sustain bursts of **5k+ access requests** without failure | MQ buffering + async billing | "Moved DB writes off the sync path via MQ" |
+| NFR-1 | **Latency** | Browse / request APIs **P99 < 200ms** | Redis cache for hot datasets & pricing | "Cache hit-rate **>99%**, dataset read avg **9.6→3.3ms (−66%)**, server P99 **6.6ms**" |
+| NFR-2 | **Throughput / peak shaving** | Sustain bursts of access requests without failure | MQ buffering + async billing; read path **~1450 req/s** @ 8 conc. | "Moved 3 downstream DB writes off the sync path via MQ" |
 | NFR-3 | **Scalability** | Pricing / consent services **scale horizontally & independently** | Stateless services + replicas + LB | "Split by scaling profile, not just domain" |
 | NFR-4 | **Availability** | A non-core service outage **does not block the order path** | Service isolation + Sentinel degradation | "Audit down ⇒ orders still flow; events queue up" |
 | NFR-5 | **Reliability (no message loss)** | Billing / payment events **zero loss** | Persistence + manual ACK + DLQ + local message table | "Triple guarantee: outbox, manual ack, DLQ" |
@@ -184,14 +192,32 @@ cp infra/.env.example infra/.env   # then edit infra/.env
 ### 2) Start infrastructure
 ```bash
 cd infra
-docker compose up -d   # Nacos, MySQL, Redis, RabbitMQ, MinIO, Sentinel
+docker compose up -d   # Nacos, MySQL, Redis Sentinel HA, RabbitMQ, MinIO,
+                       # Sentinel, Prometheus, Grafana, Zipkin
 ```
 
-### 3) Backend (current monolith)
-```bash
-cd backend
-mvn spring-boot:run    # starts on http://localhost:8080
+> **Redis HA note:** the Sentinel topology announces on the host LAN IP so both host services and
+> containers can reach the elected master. Set `REDIS_ANNOUNCE_IP` in `infra/.env` to your machine's
+> LAN IPv4 (re-check if DHCP changes it).
+
+**Observability consoles** (after services are up and have taken traffic):
+
+| Console | URL | Purpose |
+|---|---|---|
+| Grafana | http://localhost:3000 | Metrics dashboards (login from `infra/.env`) |
+| Prometheus | http://localhost:9090 | Raw metrics & targets (`/targets`) |
+| Zipkin | http://localhost:9411 | Distributed traces |
+| Nacos | http://localhost:8848/nacos | Registry & config |
+
+### 3) Microservices
+Push configs to Nacos, build, then launch all 9 services (Windows/PowerShell helpers under `infra/`):
+```powershell
+powershell -File infra/nacos/import-config.ps1   # publish *.yaml/*.json to Nacos
+cd services && ./mvnw -q clean package -DskipTests
+../infra/start-all.ps1                            # launch 9 services -> logs in infra/logs/
+../infra/health-check.ps1                         # poll ports + gateway login smoke test
 ```
+The legacy monolith under `/backend` remains as a reference; the microservice cluster is the primary runtime.
 
 ### 4) Frontend
 ```bash
@@ -212,8 +238,8 @@ The migration is delivered in phases, each independently runnable:
 - **Phase 1** — Extract `auth-service` + API gateway (Nacos registry & config)
 - **Phase 2** — `dataset-service` (+ MinIO upload/parse) and `consent-service`; OpenFeign + Redis cache
 - **Phase 3** — `access-service` orchestration + approval FSM; RabbitMQ async billing/audit/notify; payment-service (Stripe)
-- **Phase 4** — Clustering & resilience: multi-replica + LB, Redis cluster, Sentinel
-- **Phase 5** — Observability & polish; final docs and résumé write-up
+- **Phase 4** — Clustering & resilience: multi-replica + LB, **Redis Sentinel HA (1 master / 2 replicas / 3 sentinels, ~6s auto-failover)**, Sentinel flow control & circuit breaking ✅
+- **Phase 5** — Observability: Actuator + Prometheus + Grafana metrics, Zipkin distributed tracing; load-tested résumé numbers; final docs ✅
 
 Full detail in **[docs/ENTERPRISE_UPGRADE_PLAN.md](./docs/ENTERPRISE_UPGRADE_PLAN.md)**.
 

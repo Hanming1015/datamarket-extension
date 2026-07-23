@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import api from '../services/api';
+import { consentApi, datasetApi, accessApi } from '../services/api';
 import { Shield, Plus, X, Eye, Calendar, Users, Target, FileText, CheckCircle, XCircle, Clock } from 'lucide-react';
 import { DataSet, ConsentRule } from '../types';
 import { Toast } from '../components/Toast';
@@ -20,6 +20,9 @@ export default function ConsentManagement({ user }: { user: any }) {
   const [showRevokeModal, setShowRevokeModal] = useState<string | null>(null);
   const [consentRules, setConsentRules] = useState<ConsentRule[]>([]);
   const [datasets, setDatasets] = useState<DataSet[]>([]);
+  // The dataset list returns lightweight summaries WITHOUT fields; fetch the selected
+  // dataset's full field list separately so the rule editor can list them.
+  const [datasetFields, setDatasetFields] = useState<string[]>([]);
   const [accessHistory, setAccessHistory] = useState<any[]>([]);
   const [formData, setFormData] = useState({
     allowedRoles: [] as string[],
@@ -35,9 +38,10 @@ export default function ConsentManagement({ user }: { user: any }) {
 
   const fetchConsents = async () => {
     try {
-      const response = await api.get('/api/consents');
-        
-      const normalizedData = response.data.map((rule: any) => {
+      const response = await consentApi.list();
+
+      // /api/consent/rules returns a bare List<ConsentRuleVO> (not paginated)
+      const normalizedData = (response.data || []).map((rule: any) => {
         const safeParse = (value: any) => {
           if (Array.isArray(value)) return value;
           if (typeof value === 'string') {
@@ -78,10 +82,9 @@ export default function ConsentManagement({ user }: { user: any }) {
 
   const fetchDatasets = async () => {
     try {
-      // Use the newly created datasetApi which points to /api/datasets/list
-      const response = await api.get('/api/datasets/list');
-
-      setDatasets(response.data);
+      const response = await datasetApi.list();
+      // paginated payload: PageResult{records,...}
+      setDatasets(response.data?.records || []);
     } catch (error) {
       console.error('Error fetching datasets:', error);
     }
@@ -95,17 +98,30 @@ export default function ConsentManagement({ user }: { user: any }) {
     if (selectedDataset) {
       const fetchAccessHistory = async () => {
         try {
-          const response = await api.get('/api/access/requests', {
-            params: { datasetId: selectedDataset }
-          });
-          setAccessHistory(response.data);
+          // The new access-service has no "requests by datasetId" endpoint; the closest
+          // owner-scoped view is /api/access/pending. Filter to the selected dataset here.
+          const response = await accessApi.pending();
+          const records = response.data?.records || [];
+          setAccessHistory(records.filter((r: any) => r.datasetId === selectedDataset));
         } catch (error) {
           console.error('Error fetching access history:', error);
         }
       };
       fetchAccessHistory();
+
+      const fetchDatasetFields = async () => {
+        try {
+          const res = await datasetApi.get(selectedDataset);
+          setDatasetFields(res.data?.fields || []);
+        } catch (error) {
+          console.error('Error fetching dataset fields:', error);
+          setDatasetFields([]);
+        }
+      };
+      fetchDatasetFields();
     } else {
       setAccessHistory([]);
+      setDatasetFields([]);
     }
   }, [selectedDataset]);
 
@@ -135,7 +151,7 @@ export default function ConsentManagement({ user }: { user: any }) {
     };
 
     try {
-      const response = await api.post('/api/consents', ruleData);
+      const response = await consentApi.create(ruleData);
       console.log('Rule created successfully:', response.data);
       setToast({ show: true, message: 'Consent rule created successfully!', type: 'success' });
       setShowCreateModal(false);
@@ -166,7 +182,7 @@ export default function ConsentManagement({ user }: { user: any }) {
     setShowRevokeModal(null);
 
     try {
-      await api.put(`/api/consents/${ruleId}/revoke`);
+      await consentApi.revoke(ruleId);
       setToast({ show: true, message: 'Consent rule revoked successfully!', type: 'success' });
       fetchConsents();
     } catch (error) {
@@ -248,7 +264,7 @@ export default function ConsentManagement({ user }: { user: any }) {
                       </div>
                       <div className="bg-white/20 backdrop-blur-sm px-3 py-2 rounded-lg">
                         <p className="text-xs text-blue-100">Fields</p>
-                        <p className="text-lg font-bold">{dataset.fields.length}</p>
+                        <p className="text-lg font-bold">{datasetFields.length}</p>
                       </div>
                       <div className="bg-white/20 backdrop-blur-sm px-3 py-2 rounded-lg">
                         <p className="text-xs text-blue-100">Category</p>
@@ -487,7 +503,7 @@ export default function ConsentManagement({ user }: { user: any }) {
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Allowed Fields</label>
                 <div className="space-y-2">
-                  {dataset.fields.map(field => (
+                  {datasetFields.map(field => (
                     <label key={field} className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
@@ -508,7 +524,7 @@ export default function ConsentManagement({ user }: { user: any }) {
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">Denied Fields (Optional)</label>
                 <div className="space-y-2">
-                  {dataset.fields.map(field => (
+                  {datasetFields.map(field => (
                     <label key={`denied-${field}`} className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"

@@ -56,7 +56,8 @@ export default function DatasetManagement({ user }: { user: any }) {
     try {
       setLoading(true);
       const res = await datasetApi.list();
-      setDatasets(res.data || []);
+      // /api/datasets/list is paginated: payload is PageResult{records,...}
+      setDatasets(res.data?.records || res.data || []);
     } catch (error) {
       console.error('Failed to fetch datasets:', error);
       setToast({ show: true, message: 'Failed to load datasets', type: 'error' });
@@ -302,7 +303,7 @@ export default function DatasetManagement({ user }: { user: any }) {
                           Category: <span className="ml-2 px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded-full font-medium text-xs capitalize">{dataset.category}</span>
                         </p>
                         <p className="flex items-center text-sm text-gray-500">
-                          Records: <span className="ml-2 font-medium text-gray-700">{dataset.recordCount.toLocaleString()}</span>
+                          Records: <span className="ml-2 font-medium text-gray-700">{(dataset.recordCount ?? 0).toLocaleString()}</span>
                         </p>
                       </div>
                       <div className="flex items-center text-sm text-gray-500">

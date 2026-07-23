@@ -46,6 +46,11 @@ public class AuthGlobalFilter implements GlobalFilter, Ordered {
         ServerHttpRequest request = exchange.getRequest();
         String path = request.getURI().getPath();
 
+        // CORS 预检:OPTIONS 不带 token,交给全局 CORS 过滤器应答,不做 JWT 校验
+        if (request.getMethod() == org.springframework.http.HttpMethod.OPTIONS) {
+            return chain.filter(exchange);
+        }
+
         // 白名单:剥掉客户端可能伪造的身份头后直接放行
         if (isWhitelisted(path)) {
             return chain.filter(stripUserHeader(exchange));

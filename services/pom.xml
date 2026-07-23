@@ -93,6 +93,37 @@
         </dependencies>
     </dependencyManagement>
 
+    <!-- 全局公共依赖:所有子模块(9 服务 + common)自动继承 -->
+    <!-- Phase 5 可观测性:统一接入 Actuator 指标(Prometheus)+ 链路追踪(Micrometer Tracing -> Zipkin)。
+         版本全部由 Spring Boot 3.3.4 BOM 托管,无需写版本号。 -->
+    <dependencies>
+        <!-- Actuator:暴露 /actuator/health、/actuator/prometheus 等运维端点 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- Micrometer Prometheus 注册表:把指标渲染成 Prometheus 抓取格式 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+        <!-- Micrometer Tracing 的 Brave 桥接:生成/传播 traceId、spanId -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-brave</artifactId>
+        </dependency>
+        <!-- 把追踪 span 上报到 Zipkin -->
+        <dependency>
+            <groupId>io.zipkin.reporter2</groupId>
+            <artifactId>zipkin-reporter-brave</artifactId>
+        </dependency>
+        <!-- Feign 调用的追踪透传(traceId 随 HTTP 头跨服务传递)-->
+        <dependency>
+            <groupId>io.github.openfeign</groupId>
+            <artifactId>feign-micrometer</artifactId>
+        </dependency>
+    </dependencies>
+
     <build>
         <pluginManagement>
             <plugins>

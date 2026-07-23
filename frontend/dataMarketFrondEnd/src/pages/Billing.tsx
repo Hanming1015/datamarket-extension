@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
 import { DollarSign, TrendingUp, Database, FileText, Download, Calendar } from 'lucide-react';
-import api from '../services/api';
+import { billingApi } from '../services/api';
 import { UsageStats, BillingRecord } from '../types';
 
 export default function Billing({ user }: { user: any }) {
-  const [viewMode, setViewMode] = useState<'consumer' | 'owner'>(user?.role || 'consumer');
+  const [viewMode] = useState<'consumer' | 'owner'>(user?.role || 'consumer');
   const [timeRange, setTimeRange] = useState('30');
 
   const [stats, setStats] = useState<UsageStats>({
@@ -15,12 +15,14 @@ export default function Billing({ user }: { user: any }) {
     monthlyTrend: []
   });
   const [records, setRecords] = useState<BillingRecord[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
 
   const fetchBillingData = async () => {
     setLoading(true);
     try {
-      const response = await api.get(`/api/billing/summary?userId=${user?.id}&role=${viewMode}&days=${timeRange}`);
+      // Billing is scoped to the caller via X-User-Id; server has no summary/aggregation
+      // endpoint, so we pull the paginated records and compute the trend on the frontend.
+      const response = await billingApi.mine({ size: 200 });
 
       if (response.data) {
         const fetchedRecords: BillingRecord[] = response.data.records || [];
@@ -188,7 +190,7 @@ export default function Billing({ user }: { user: any }) {
               </div>
 
               <div className="space-y-4">
-                {stats.monthlyTrend.map((data, index) => (
+                {stats.monthlyTrend.map((data) => (
                   <div key={data.month} className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-600 font-medium w-12">{data.month}</span>
@@ -346,7 +348,7 @@ export default function Billing({ user }: { user: any }) {
               </div>
 
               <div className="space-y-4">
-                {stats.monthlyTrend.map((data, index) => (
+                {stats.monthlyTrend.map((data) => (
                   <div key={data.month} className="space-y-2">
                     <div className="flex items-center justify-between text-sm">
                       <span className="text-gray-600 font-medium w-12">{data.month}</span>

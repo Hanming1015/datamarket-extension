@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Search, Database, Send, X, CheckCircle2, AlertCircle, Clock, Filter, User, Hash } from 'lucide-react';
 import { DataSet } from '../types';
-import api from '../services/api';
+import { datasetApi, accessApi } from '../services/api';
 import { Toast } from '../components/Toast';
 
 export default function DataMarket({ user }: { user: any }) {
@@ -27,12 +27,12 @@ export default function DataMarket({ user }: { user: any }) {
         if (selectedCategory !== 'all') params.category = selectedCategory;
         if (searchQuery) params.keyword = searchQuery;
 
-        const response = await api.get('/api/datasets/all', { params });
+        const response = await datasetApi.all(params);
         //console.log("Fetched datasets from backend:", response.data);
 
-        // Since backend currently doesn't implement query wrappers for these params,
-        // we filter the results safely on the frontend for now:
-        let filteredData = response.data || [];
+        // /api/datasets/all is paginated: payload is PageResult{records,...}.
+        // Query params aren't honored server-side yet, so filter safely on the frontend:
+        let filteredData = response.data?.records || [];
         if (selectedCategory !== 'all') {
           filteredData = filteredData.filter((ds: any) => ds.category?.toLowerCase() === selectedCategory.toLowerCase());
         }
@@ -51,10 +51,10 @@ export default function DataMarket({ user }: { user: any }) {
 
     const fetchMyRequests = async () => {
       try {
-        const response = await api.get('/api/access/requests', {
-          params: { userId: user?.id }
-        });
-        setMyRequests(response.data.slice(0, 5));
+        const response = await accessApi.mine();
+        // /api/access/mine is paginated: payload is PageResult{records,...}
+        const records = response.data?.records || [];
+        setMyRequests(records.slice(0, 5));
       } catch (error) {
         console.error("Failed to fetch my requests", error);
       }
@@ -71,31 +71,47 @@ export default function DataMarket({ user }: { user: any }) {
 
   const [myRequests, setMyRequests] = useState<any[]>([]);
 
+  // The marketplace list returns lightweight summaries WITHOUT fields/fieldsSchema.
+  // Fetch the full dataset (GET /{id}) before opening the request modal so field
+  // selection works and nothing reads `.fields` on an undefined value.
+  const openRequestModal = async (dataset: DataSet) => {
+    try {
+      const res = await datasetApi.get(dataset.id);
+      setSelectedDataset({ ...dataset, ...res.data });
+    } catch (error) {
+      console.error('Failed to load dataset detail', error);
+      setSelectedDataset(dataset);
+    }
+    setShowRequestModal(true);
+  };
+
   const handleRequestAccess = async () => {
     if (!selectedDataset) return;
 
     try {
+      // requesterId/requesterName are NOT sent — the gateway derives identity from
+      // the JWT (X-User-Id). consumerType is self-reported and judged against the
+      // owner's allowedRoles server-side.
       const payload = {
-        requesterId: user?.id,
-        requesterName: user?.name,
-        // Send the specific type that perfectly matches Consent Allowed Roles
         consumerType: user?.organization || "Research Institution",
         datasetId: selectedDataset.id,
         purpose: requestForm.purpose,
         requestedFields: requestForm.requestedFields
       };
 
-      const response = await api.post("/api/access/request", payload);
+      const response = await accessApi.create(payload);
+      const vo = response.data; // AccessRequestVO
 
-      console.log("Server Response:", response.data);
+      console.log("Server Response:", vo);
 
-      if (response.data.status === "rejected") {
-        const errorReason = response.data.decision?.reasons?.[Object.keys(response.data.decision.reasons)[0]] || "Insufficient permissions";
+      if (vo?.status === "REJECTED") {
+        const reasons = vo.denialReasons ? Object.values(vo.denialReasons) : [];
+        const errorReason = reasons[0] || "Insufficient permissions";
         setToast({ show: true, message: `Access Request Rejected\nReason: ${errorReason}`, type: 'error' });
       } else {
         setToast({
           show: true,
-          message: `Request Successful (${response.data.status})!\nTotal Cost: $${response.data.pricing?.totalCost}`,
+          message: `Request Successful (${vo?.status})!\nTotal Cost: $${vo?.cost ?? '0.00'}`,
           type: 'success'
         });
       }
@@ -186,11 +202,11 @@ export default function DataMarket({ user }: { user: any }) {
                     <div className="flex flex-wrap items-center gap-x-5 gap-y-3 mt-auto pt-4 border-t border-gray-100">
                       <div className="flex items-center gap-1.5 text-gray-500 text-sm font-medium bg-gray-50 px-2.5 py-1 rounded-md">
                         <Database className="w-4 h-4 text-blue-500" />
-                        <span>{dataset.recordCount.toLocaleString()} records</span>
+                        <span>{(dataset.recordCount ?? 0).toLocaleString()} records</span>
                       </div>
                       <div className="flex items-center gap-1.5 text-gray-500 text-sm font-medium bg-gray-50 px-2.5 py-1 rounded-md">
                         <Hash className="w-4 h-4 text-emerald-500" />
-                        <span>{dataset.fields.length} fields</span>
+                        <span>{dataset.fields?.length ?? 0} fields</span>
                       </div>
                       <div className="flex items-center gap-1.5 text-gray-500 text-sm font-medium bg-gray-50 px-2.5 py-1 rounded-md">
                         <User className="w-4 h-4 text-purple-500" />
@@ -203,8 +219,7 @@ export default function DataMarket({ user }: { user: any }) {
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      setSelectedDataset(dataset);
-                      setShowRequestModal(true);
+                      openRequestModal(dataset);
                     }}
                     className="ml-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2"
                   >
@@ -294,8 +309,8 @@ export default function DataMarket({ user }: { user: any }) {
                 <h4 className="font-semibold text-gray-900 mb-1">{selectedDataset.name}</h4>
                 <p className="text-sm text-gray-600">{selectedDataset.description}</p>
                 <div className="flex gap-4 mt-3 text-sm text-gray-600">
-                  <span>{selectedDataset.recordCount.toLocaleString()} records</span>
-                  <span>{selectedDataset.fields.length} fields available</span>
+                  <span>{(selectedDataset.recordCount ?? 0).toLocaleString()} records</span>
+                  <span>{selectedDataset.fields?.length ?? 0} fields available</span>
                 </div>
               </div>
 
@@ -319,7 +334,7 @@ export default function DataMarket({ user }: { user: any }) {
                   <span className="text-xs text-gray-500 font-normal">Select fields you need access to</span>
                 </label>
                 <div className="space-y-2 max-h-60 overflow-y-auto border border-gray-200 rounded-lg p-3 bg-white">
-                  {selectedDataset.fields.map(field => {
+                  {(selectedDataset.fields || []).map(field => {
                     const schemaItem = (selectedDataset as any).fieldsSchema?.find((s: any) => s.name === field);
                     const isSensitive = schemaItem?.sensitive === true;
                     const fieldType = schemaItem?.type || 'unknown';
@@ -373,7 +388,7 @@ export default function DataMarket({ user }: { user: any }) {
                   })}
                 </div>
                 <p className="text-xs text-gray-500 mt-2 font-medium">
-                  {requestForm.requestedFields.length} of {selectedDataset.fields.length} fields selected
+                  {requestForm.requestedFields.length} of {selectedDataset.fields?.length ?? 0} fields selected
                 </p>
               </div>
 

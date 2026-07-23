@@ -18,3 +18,33 @@ spring:
     port: 5672
     username: __RABBITMQ_USER__
     password: __RABBITMQ_PASSWORD__
+
+# =====================================================================
+# Phase 5 可观测性:所有服务共享同一套 Actuator 指标 + 链路追踪配置。
+#   - /actuator/prometheus 供 Prometheus 抓取;metrics 打上 application 标签便于按服务区分。
+#   - 追踪 100% 采样(本地演示),span 上报到宿主机 9411 的 Zipkin。
+# 各服务的 spring.application.name 已在自身 nacos 配置里设定。
+# =====================================================================
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
+  metrics:
+    tags:
+      application: ${spring.application.name}
+    distribution:
+      # 发布 HTTP 请求耗时的直方图桶,Prometheus 端可用 histogram_quantile 算 P95/P99
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 50ms,100ms,200ms,500ms,1s
+  tracing:
+    sampling:
+      probability: 1.0
+  zipkin:
+    tracing:
+      endpoint: http://127.0.0.1:9411/api/v2/spans
